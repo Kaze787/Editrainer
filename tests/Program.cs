@@ -22,6 +22,11 @@ if (args[0] == "--extras")
     AllGames.RunExtras(args[1], args.ElementAtOrDefault(2));
     return;
 }
+if (args[0] == "--extras-save")
+{
+    AllGames.RealBoxName(Path.GetFullPath(args[1]), Path.GetFullPath(args[2]));
+    return;
+}
 if (args[0] == "--box-save")
 {
     AllGames.RealSave(Path.GetFullPath(args[1]), Path.GetFullPath(args[2]));

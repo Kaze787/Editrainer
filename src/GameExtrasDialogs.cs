@@ -173,7 +173,6 @@ sealed class DaycareDialog : ExtraDialog
 
     static string Note(SaveDocument document)
     {
-        var editor = document.Daycare;
         if (document.Save is SAV8SWSH or SAV7b) return T("En este juego la guardería solo se puede consultar: PKHeX no sabe vaciar sus lugares.");
         return T("Sale como entró, sin la experiencia que haya ganado allí, y llega al primer lugar libre desde la caja abierta.") + "\n" + T("Los cambios se aplican al guardar la partida.");
     }
@@ -214,7 +213,7 @@ sealed class DaycareDialog : ExtraDialog
         bool leaving = Selected is { } guest && editor.IsLeaving(guest);
         withdraw.Enabled = Selected is { } chosen && !leaving && editor.WhyStays(chosen) == null;
         stay.Enabled = leaving;
-        if (Selected is { } held && !leaving && editor.WhyStays(held) is { } why) Say(why);
+        if (editor.CanWithdraw && Selected is { } held && !leaving && editor.WhyStays(held) is { } why) Say(why);
     }
 
     void Choose(int row) { Grid.ClearSelection(); Grid.Rows[row].Selected = true; }
@@ -257,7 +256,6 @@ sealed class GiftsDialog : ExtraDialog
     {
         this.editor = editor;
         AddText(T("N.º de regalo"), 130); AddText(T("Fecha"), 130); AddText(T("Regalo")); AddTick(T("Recibido"), 110);
-        foreach (DataGridViewColumn column in Grid.Columns) column.ReadOnly = column.Index != ReceivedColumn;
         AddButton(undo);
         binding = true;
         foreach (var gift in editor.Records)
@@ -348,8 +346,7 @@ sealed class RaidsDialog : ExtraDialog
     {
         this.editor = editor;
         Grid.SelectionMode = DataGridViewSelectionMode.CellSelect; Grid.EditMode = DataGridViewEditMode.EditOnEnter;
-        AddText(T("Lugar")); Grid.Columns[PlaceColumn].ReadOnly = true;
-        AddTick(T("Activa"), 90); AddText(T("Semilla"), 200, editable: true, longest: editor.SeedDigits);
+        AddText(T("Lugar")); AddTick(T("Activa"), 90); AddText(T("Semilla"), 200, editable: true, longest: editor.SeedDigits);
         if (editor.HasStars) AddText(T("Estrellas"), 100, editable: true, longest: 1);
         AddButton(undo); AddButton(allOff); AddButton(allOn);
         region.Items.AddRange(editor.Regions.ToArray<object>());
@@ -455,14 +452,15 @@ sealed class PokeathlonDialog : ExtraDialog
     {
         this.editor = editor;
         Grid.SelectionMode = DataGridViewSelectionMode.CellSelect; Grid.EditMode = DataGridViewEditMode.EditOnEnter;
-        AddText(T("Dato")); Grid.Columns[0].ReadOnly = true;
+        AddText(T("Dato"));
         AddText(T("Valor"), 180, editable: true, longest: editor.MaxPoints.ToString(CultureInfo.InvariantCulture).Length + 1);
         AddButton(undo);
         binding = true; Grid.Rows.Add(T("Puntos"), ""); binding = false;
         Grid.CellValueChanged += (_, e) => {
             if (binding || e.RowIndex < 0) return;
-            if (uint.TryParse(Grid[ValueColumn, PointsRow].Value?.ToString(), NumberStyles.Integer, CultureInfo.CurrentCulture, out uint points)) editor.Points = points;
-            ShowState(editor.Validate() ?? (editor.Points.ToString(CultureInfo.InvariantCulture) == Grid[ValueColumn, PointsRow].Value?.ToString() ? "" : T("Los puntos deben estar entre 0 y {0:N0}.", editor.MaxPoints)));
+            bool number = uint.TryParse(Grid[ValueColumn, PointsRow].Value?.ToString(), NumberStyles.Integer, CultureInfo.CurrentCulture, out uint points);
+            if (number) editor.Points = points;
+            ShowState(editor.Validate() ?? (number ? "" : T("Los puntos deben estar entre 0 y {0:N0}.", editor.MaxPoints)));
         };
         undo.Click += (_, _) => { Grid.CancelEdit(); editor.Reset(); ShowState(""); };
         Load += (_, _) => Grid.CurrentCell = Grid[ValueColumn, PointsRow];
@@ -611,11 +609,9 @@ public sealed partial class EditorView
         var save = (SAV6XY)Blank(GameVersion.X);
         for (int visit = 0; visit < HallOfFame6.Entries; visit++)
         {
-            var index = new HallFame6Index(save.HallOfFame.GetEntry(visit)[^HallFame6Index.SIZE..]) { HasData = true, ClearIndex = (uint)visit, Year = 16, Month = 2, Day = 27 };
+            _ = new HallFame6Index(save.HallOfFame.GetEntry(visit)[^HallFame6Index.SIZE..]) { HasData = true, ClearIndex = (uint)visit, Year = 16, Month = 2, Day = 27 };
             for (int slot = 0; slot < HallOfFame6.PokeCount; slot++)
-            {
-                var member = new HallFame6Entity(save.HallOfFame.GetEntity(visit, slot), save.Language) { Species = (ushort)(slot + 1), Level = 100, Nickname = "Ana", IsShiny = slot == 0 };
-            }
+                _ = new HallFame6Entity(save.HallOfFame.GetEntity(visit, slot), save.Language) { Species = (ushort)(slot + 1), Level = 100, Nickname = "Ana", IsShiny = slot == 0 };
         }
         return save;
     }

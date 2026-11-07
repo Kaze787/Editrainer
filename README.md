@@ -161,7 +161,7 @@ Rows keep their room for fields and labels. If you shrink the window and the con
 
 ## Whole-save tools
 
-The **Tools** button, next to **Find saves**, gathers everything that works on the whole save: the four tools below, the Legends: Z-A tools, the trainer and Pokédex editors, and the box sorting and undo described further down. These four open their own window beside the editor, so you can keep working while it's open. Only restoring a backup writes anything.
+The **Tools** button, next to **Find saves**, gathers everything that works on the whole save: the four tools below, the Legends: Z-A tools, the trainer and Pokédex editors, the game extras, and the box sorting and undo described further down. These four open their own window beside the editor, so you can keep working while it's open. Only restoring a backup writes anything.
 
 - **Legality audit** checks every Pokémon as it would be saved, pending changes included, and lists the ones that aren't legal with the reasons. Click one to see it in the editor, and use **Check again** after fixing it.
 - **Box report** shows every Pokémon in one table: place, species, nickname, level, nature, ability, IVs, EVs, moves, held item, shiny and legality. Click a column to sort by it. **Export CSV** saves the table for a spreadsheet, using your system's list separator. IVs and EVs follow the order HP / Attack / Defense / Speed / Sp. Atk / Sp. Def.
@@ -201,6 +201,22 @@ Story progress, event flags, Mable's research, your position and your trainer pi
 - In **Legends: Z-A** without the DLC the list is the Lumiose Pokédex.
 - Colosseum, XD and box-only saves don't have a Pokédex.
 
+## Game extras
+
+**Tools** also lists small windows for what only some games keep. A game that doesn't keep something doesn't show its entry. What you change stays pending like any other edit: it's applied with **Save game**, it counts as a pending change when you close the app, you can undo it, it's listed in the automatic backup, and it's read back from the written save before the old file is replaced.
+
+- **Box names:** rename boxes from Gen 2 to Legends: Z-A. Up to 8 characters until Gen 5, 14 in Gen 6 and 7, and 16 from Gen 8, always in the game's alphabet. The box list shows the new name straight away. Gen 1 fixes its names and Let's Go has none.
+- **Daycare:** see who is there and whether an egg is waiting, in every game with a daycare except Colosseum and XD. **Take to a box** sends a Pokémon to the first free place from the open box on, with its held item. It counts as a box change, so box undo brings it back. It leaves as it went in, without the experience it gained there. If its partner stays, the partner moves to the first place, which is where the games look for it.
+  - A Pokémon can't leave while an egg is waiting, because the game reads its parents to make it, and it can't leave while either of them holds mail.
+  - Sword, Shield and Let's Go are view only: PKHeX can't empty their places, and it can't tell whether an egg is waiting in Sword and Shield.
+- **Received gifts:** in Sword and Shield, Brilliant Diamond and Shining Pearl, Legends: Arceus, and Scarlet and Violet. Clearing a tick removes the gift from the save's list so it can be received again, and the list closes up behind it. Brilliant Diamond and Shining Pearl also clear the gift's received mark, which PKHeX documents. The other games keep this list in a block PKHeX doesn't describe. The layout used here comes from PKHeX-Avalonia, and whether removing the entry is enough to receive a gift again hasn't been tested in those games. Legends: Z-A isn't offered, because PKHeX keeps that block private and no layout is known.
+- **Hall of Fame:** view only. Gen 1, Gen 3 and Gen 6 show whole teams, Gen 7 only keeps the species of the first and latest visits, and Sword and Shield only keep the day of the first one. PKHeX can't read it in the other games.
+- **Raids:** turn the dens of Sword and Shield and the crystals of Scarlet and Violet on or off and change their seeds, plus the stars in Sword and Shield. The games make new raids when the day changes, so this lasts until then. The Watchtower den is left alone, as PKHeX does.
+- **Pokéathlon:** the points of HeartGold and SoulSilver.
+- **Secret bases:** view only, in Ruby, Sapphire, Emerald, Omega Ruby and Alpha Sapphire. Bases show their owner and the place number the game uses.
+
+These tools were tested on all 38 games with generated saves, and box names byte by byte on real Z-A saves. None of the results has been loaded in a game, so try them on a copy first.
+
 ## Boxes
 
 Move your Pokémon around the way you would in the game. Like every other edit, nothing changes in your file until you press **Save game**, and each Pokémon with a pending change shows its dot.
@@ -230,7 +246,7 @@ Every change is checked after writing: each place of the team and the boxes has 
 Backups go in the `Backups` folder, inside the app's folder. The **Open backups** link opens it. Each save includes:
 
 - `main.original` (or `<name>.sav.original`): the full save from before the edit.
-- `cambios.json`: which Pokémon and values changed, along with the trainer and Pokédex changes.
+- `cambios.json`: which Pokémon and values changed, along with the trainer, Pokédex and game extras changes.
 - `destino.anterior`: an extra copy, if a file other than the one you opened was overwritten.
 
 To restore a backup, use **Tools > Manage backups**. To do it by hand, close the emulator, open the `.original` file and use **Save as** to store it under its original name in the emulator's save folder. To open `main.original`, choose the **All files** filter in the file selector.

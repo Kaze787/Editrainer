@@ -1733,7 +1733,10 @@ static class AllGames
                 }
                 return 2;
             case SAV7b s:
-                first.Data[..s.Daycare.Stored.Length].CopyTo(s.Daycare.Stored.Span);
+                // Encrypted, as the game keeps it.
+                var whole = new byte[s.SIZE_PARTY];
+                first.WriteEncryptedDataParty(whole);
+                whole.AsSpan(0, s.Daycare.Stored.Length).CopyTo(s.Daycare.Stored.Span);
                 return 1;
         }
         var place = sav is SAV6AO ao ? ao[0] : (IDaycareStorage)sav;
@@ -1803,7 +1806,7 @@ static class AllGames
             Check(label, left.Slot == (sav is SAV2 ? 1 : 0), "el que queda ocupa el lugar que el juego lee", left.Slot.ToString());
             if (sav is IDaycareExperience or SAV6AO) Check(label, left.Experience == 101, "conserva lo que llevaba ganado", left.Experience.ToString());
             if (read.Save is SAV2 two) Check(label, (two.DaycareFlagByte(0) & 1 << 5) == 0, "ya no cuentan como pareja");
-            var last = read.Withdraw(left, 0);
+            read.Withdraw(left, 0);
             var empty = Reopened(read, work, version + ".daycare.empty.sav");
             Check(label, empty.Daycare.Guests.Count == 0 && empty.Pokemon.Count == boxed + 2, "también sale el segundo");
         }
@@ -1870,6 +1873,7 @@ static class AllGames
         return sav;
     }
 
+    const int BoxNameBytes = 0x22;
     const uint GalarGifts = 0x112D5141, TrimmedGifts = 0x99E1625E;
     const int GalarGift = 0x68, TrimmedGift = 0x278;
     const ushort GiftPokemon = 1001, GiftItem = 1002, GiftPoints = 1003, MarkOnly = 99;
@@ -1969,7 +1973,6 @@ static class AllGames
         Check(label, !read.HasChanges && read.Pokemon.Count == doc.Pokemon.Count && read.Save.Money == doc.Save.Money, "conserva el resto de la partida");
         if (read.Save is SAV8BS bdsp)
         {
-            ReadOnlySpan<byte> flags = bdsp.MysteryRecords.Data[MysteryBlock8b.OFS_RECVFLAG..];
             bool Marked(int id) => (bdsp.MysteryRecords.Data[MysteryBlock8b.OFS_RECVFLAG + (id >> 3)] & 1 << (id & 7)) != 0;
             Check(label, !Marked(GiftItem) && Marked(GiftPokemon) && Marked(GiftPoints) && Marked(MarkOnly), "borra solo su marca de recibido");
         }
@@ -2022,8 +2025,8 @@ static class AllGames
                 break;
             case SAV6 s:
                 var fame = s is SAV6XY xy ? xy.HallOfFame : ((SAV6AO)s).HallOfFame;
-                var index = new HallFame6Index(fame.GetEntry(0)[^HallFame6Index.SIZE..]) { HasData = true, ClearIndex = 2, Year = 16, Month = 2, Day = 27 };
-                var six = new HallFame6Entity(fame.GetEntity(0, 0), s.Language) { Species = species, Level = 50, Nickname = "PIKA", IsShiny = true };
+                _ = new HallFame6Index(fame.GetEntry(0)[^HallFame6Index.SIZE..]) { HasData = true, ClearIndex = 2, Year = 16, Month = 2, Day = 27 };
+                _ = new HallFame6Entity(fame.GetEntity(0, 0), s.Language) { Species = species, Level = 50, Nickname = "PIKA", IsShiny = true };
                 break;
             case SAV7 s:
                 s.EventWork.Fame.SetEntry(0, species); s.EventWork.Fame.SetEntry(6, species);
@@ -2177,16 +2180,16 @@ static class AllGames
         if (doc.ZaSave is not { } save) { Console.WriteLine("Se omite la prueba byte a byte de los nombres: es para Z-A."); return; }
         const string wanted = "Caja de prueba";
         Check(label, !DaycareEditor.IsKept(save) && !GiftEditor.IsKept(save) && !FameRecords.IsKept(save) && BoxNameEditor.IsKept(save), "Z-A ofrece solo los nombres de las cajas");
-        Check(label, doc.BoxNames.Original(0) == T("Caja 1").Replace("1", "1") || doc.BoxNames.Original(0).Length != 0, "lee los nombres");
+        Check(label, doc.BoxNames.Original(0).Length != 0, "lee los nombres");
         doc.BoxNames.Set(0, wanted);
         var read = Reopened(doc, work, "main.names");
         var after = (SAV9ZA)read.Save;
         Check(label, after.GetBoxName(0) == wanted && Enumerable.Range(1, save.BoxCount - 1).All(b => after.GetBoxName(b) == save.GetBoxName(b)), "guarda solo ese nombre");
         var changed = save.AllBlocks.Zip(after.AllBlocks).Where(p => !p.First.Data.SequenceEqual(p.Second.Data)).Select(p => p.First).ToList();
         Check(label, changed.Count == 1 && changed[0].Data.SequenceEqual(save.BoxLayout.Data), "cambia un solo bloque, el de los nombres", changed.Count.ToString());
-        var a = save.BoxLayout.Data; var b = after.BoxLayout.Data;
-        int differ = Enumerable.Range(0, a.Length).Count(i => save.BoxLayout.Data[i] != after.BoxLayout.Data[i]);
-        Check(label, differ <= wanted.Length * 2 && Enumerable.Range(34, a.Length - 34).All(i => save.BoxLayout.Data[i] == after.BoxLayout.Data[i]), "dentro del bloque cambia solo el nombre", differ.ToString());
+        int length = save.BoxLayout.Data.Length;
+        int differ = Enumerable.Range(0, length).Count(i => save.BoxLayout.Data[i] != after.BoxLayout.Data[i]);
+        Check(label, differ <= wanted.Length * sizeof(char) && Enumerable.Range(BoxNameBytes, length - BoxNameBytes).All(i => save.BoxLayout.Data[i] == after.BoxLayout.Data[i]), "dentro del bloque cambia solo el nombre", differ.ToString());
         Check(label, read.Pokemon.Count == doc.Pokemon.Count && read.Save.Money == save.Money, "conserva el resto de la partida");
         doc.BoxNames.Reset();
         Check(label, SaveDocument.Hash(doc.BuildOutput()) == hash, "deshacer deja la partida idéntica");
