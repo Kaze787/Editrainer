@@ -32,7 +32,7 @@ The images are not in the ZIP because they belong to their owners, so each perso
 
 Double-click **`Editrainer.exe`**. It opens your most recent save by itself.
 
-It opens in your Windows language if that's English, Spanish, Chinese or French, and in English otherwise. To change it, click the **⚙** button at the top left.
+It opens in your Windows language if it's one of the nine it offers, and in English otherwise. To change it, click the **⚙** button at the top left.
 
 > **If Windows shows "Windows protected your PC"** in step 4 or 5, click **More info** and then **Run anyway**. Windows shows this message for apps that aren't digitally signed.
 
@@ -88,13 +88,14 @@ Changes stay in memory until you save. **Undo this Pokémon** discards that Pok�
 The **⚙** button at the top left opens the settings:
 
 - **Theme**: light or dark.
-- **Language**: Spanish, English, Simplified Chinese or French. It changes the app's text and the names of Pokémon, moves, abilities, natures, types and items.
+- **Language**: Spanish, English, Simplified Chinese, French, German, Italian, Japanese, Korean or Brazilian Portuguese. It changes the app's text and the names of Pokémon, moves, abilities, natures, types and items.
 
-When you click **Apply**, the change happens right away, without closing the window, and keeps the open save, unsaved changes, the selected Pokémon, the box and the tab. Your choice is stored in `settings.json`, next to the app. Until you make one, the app uses your Windows language, or English if it isn't one of these four.
+When you click **Apply**, the change happens right away, without closing the window, and keeps the open save, unsaved changes, the selected Pokémon, the box and the tab. Your choice is stored in `settings.json`, next to the app. Until you make one, the app uses your Windows language, or English if it isn't one of these nine. Any Portuguese version of Windows opens in Brazilian Portuguese.
 
 - The language only changes what you see. What gets written to the save is identical in every language, and nicknames and trainer names stay as they are in the save.
 - Windows draws the buttons on message boxes and the open and save file dialogs, so they appear in your system's language.
-- Only languages with complete game names are offered. PKHeX doesn't have them in Portuguese, Russian, Hindi or Arabic, which would leave the app half translated.
+- PKHeX has no game names in Portuguese, so in Brazilian Portuguese the app's own text is translated but the names of Pokémon, moves, abilities, natures, types and items stay in English, and so do legality reports. The language selector says so too.
+- Russian, Hindi and Arabic aren't offered, because PKHeX has no game names in those languages either.
 
 ## Forms and colors
 

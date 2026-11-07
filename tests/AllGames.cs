@@ -97,7 +97,7 @@ static class AllGames
         var placed = doc.TeamSlots().Concat(everyBox.SelectMany(b => b)).OfType<PokemonEntry>().ToList();
         Check(label, placed.Count == doc.Pokemon.Count && placed.Distinct().Count() == placed.Count, "cada Pokémon ocupa un solo lugar", placed.Count.ToString());
         Check(label, doc.Pokemon.Where(p => !p.IsParty).All(p => doc.BoxSlots(doc.BoxOf(p))[p.Index % doc.Save.BoxSlotCount] == p), "cada Pokémon está en el lugar de su caja");
-        Check(label, Enumerable.Range(0, doc.BoxCount).All(b => rules.BoxName(b).Length > 0 && (Strings.Current.Code == "en" || !rules.BoxName(b).StartsWith("Box "))), "nombra las cajas", rules.BoxName(0));
+        Check(label, Enumerable.Range(0, doc.BoxCount).All(b => rules.BoxName(b).Length > 0 && (Strings.T("Caja {0}", 1).StartsWith("Box ") || !rules.BoxName(b).StartsWith("Box "))), "nombra las cajas", rules.BoxName(0));
         Check(label, doc.BoxLabel(0).Contains($"/ {doc.Save.BoxSlotCount}"), "la lista de cajas cuenta sus Pokémon", doc.BoxLabel(0));
         foreach (var e in doc.Pokemon)
         {
@@ -1568,14 +1568,18 @@ static class AllGames
         foreach (var row in Strings.AllTexts)
         {
             var values = Regex.Matches(row[0], "\\{\\d+(:\\w+)?\\}").Select(m => m.Value).Order().ToList();
+            int breaks = row[0].Count(c => c == '\n');
             foreach (var text in row.Skip(1))
             {
                 Check(where, text.Length > 0, "tiene traducción", row[0]);
                 Check(where, Regex.Matches(text, "\\{\\d+(:\\w+)?\\}").Select(m => m.Value).Order().SequenceEqual(values), "conserva sus valores", text);
+                Check(where, text.Count(c => c == '\n') == breaks, "conserva sus saltos de línea", text);
             }
             string literal = "\"" + row[0].Replace("\n", "\\n") + "\"";
             Check(where, code.Any(c => c.Contains(literal)), "se usa en la app", row[0]);
-            Check(where, row[0] == "N-" || row[2] != row[0] || !row[0].Any(char.IsLetter) || row[0].Length <= 2, "está en chino", row[0]);
+            // Latin text left in a language with its own script is a row someone forgot, wherever it stands.
+            foreach (var (column, script) in new[] { (2, "chino"), (6, "japonés"), (7, "coreano") })
+                Check(where, row[0] == "N-" || row[column] != row[0] || !row[0].Any(char.IsLetter) || row[0].Length <= 2, "está en " + script, row[0]);
         }
         Console.WriteLine();
         foreach (var f in failures) Console.WriteLine("  " + f);

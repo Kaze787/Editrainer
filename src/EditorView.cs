@@ -44,7 +44,7 @@ public sealed partial class EditorView : UserControl
     readonly Label[] statLabels = new Label[6];
     readonly Button maxIV = Theme.Button(T("{0} a {1}", T("IV"), 31));
     readonly PictureBox portrait = new() { Dock = DockStyle.Fill, SizeMode = PictureBoxSizeMode.Zoom, Margin = new Padding(8) };
-    readonly Label natureEffect = Theme.Label("", 10, true, Theme.Accent);
+    readonly Label natureEffect = Theme.Label("", 9, true, Theme.Accent);
     readonly Label abilityLabel = Theme.Label(T("Habilidad"), 10, true), abilityNote = Theme.Label("", 9, color: Theme.Muted);
     readonly Label evTotal = Theme.Label("EV: 0 / 510", 9, true);
     readonly Label buildHint = Theme.Label(T("Elige una evolución y pulsa Optimizar Pokémon."), 9, color: Theme.Muted);
@@ -119,7 +119,7 @@ public sealed partial class EditorView : UserControl
         root.RowStyles.Add(new(SizeType.Absolute, 58)); root.RowStyles.Add(new(SizeType.Absolute, 32));
         root.RowStyles.Add(new(SizeType.Percent, 100)); root.RowStyles.Add(new(SizeType.Absolute, 78));
         Controls.Add(root);
-        var header = Table(3, 1); header.ColumnStyles.Add(new(SizeType.Absolute, 54)); header.ColumnStyles.Add(new(SizeType.Percent, 100)); header.ColumnStyles.Add(new(SizeType.Absolute, 500));
+        var header = Table(3, 1); header.ColumnStyles.Add(new(SizeType.Absolute, 54)); header.ColumnStyles.Add(new(SizeType.Percent, 100)); header.ColumnStyles.Add(new(SizeType.AutoSize));
         settingsButton.Size = new Size(44, 44); settingsButton.Anchor = AnchorStyles.Top | AnchorStyles.Left; settingsButton.Margin = new Padding(0, 7, 10, 0);
         settingsButton.AccessibleName = T("Configuración");
         settingsButton.Click += (_, _) => SettingsRequested?.Invoke(); tips.SetToolTip(settingsButton, T("Configuración"));
@@ -128,7 +128,7 @@ public sealed partial class EditorView : UserControl
         brandPanel.Controls.Add(brand, 0, 0);
         brandPanel.Controls.Add(Theme.Label(T("PREPARA TU PRÓXIMO COMBATE"), 8, true, Theme.Accent), 0, 1);
         header.Controls.Add(brandPanel, 1, 0);
-        var fileActions = Flow(); fileActions.FlowDirection = FlowDirection.RightToLeft;
+        var fileActions = Flow(); fileActions.FlowDirection = FlowDirection.RightToLeft; fileActions.AutoSize = true; fileActions.AutoSizeMode = AutoSizeMode.GrowAndShrink;
         var open = Theme.Button(T("Abrir partida…")); open.Click += (_, _) => OpenDialog();
         var find = Theme.Button(T("Buscar partidas")); find.Click += async (_, _) => await FindSaves();
         fileActions.Controls.Add(open); fileActions.Controls.Add(find);
@@ -1201,6 +1201,7 @@ public sealed partial class EditorView : UserControl
         var checks = new List<string>();
         void Check(bool ok, string description) { if (!ok) throw new Exception(description); checks.Add(description); }
         Check(document != null && Strings.Current.Code == expected.Language && Theme.IsDark == expected.Dark, "The window opens in the chosen language and theme");
+        SettingsDialog.RunChecks(expected, Check);
         CheckZaTools(Check);
         CheckLayout(Check, "normal window");
         Window.Size = Window.MinimumSize; CheckLayout(Check, "minimum window");

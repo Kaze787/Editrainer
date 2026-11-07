@@ -61,8 +61,7 @@ static class Theme
 #pragma warning restore WFO5001
     }
 
-    // Segoe UI has no Chinese, and borrowing a font glyph by glyph gives uneven text.
-    public static Font Font(float size = 10, bool bold = false) => new(Strings.Current.Code == "zh" ? "Microsoft YaHei UI" : "Segoe UI", size, bold ? FontStyle.Bold : FontStyle.Regular);
+    public static Font Font(float size = 10, bool bold = false) => new(Strings.Current.Font, size, bold ? FontStyle.Bold : FontStyle.Regular);
     public static Label Label(string text = "", float size = 10, bool bold = false, Color? color = null) => new() {
         Text = text, Font = Font(size, bold), ForeColor = color ?? Ink, AutoSize = false,
         Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft, Margin = new Padding(3),

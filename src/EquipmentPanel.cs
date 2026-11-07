@@ -27,14 +27,16 @@ sealed class EquipmentPanel : UserControl
         var layout = new TableLayoutPanel { Dock = DockStyle.Top, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink,
             ColumnCount = 1, RowCount = 3, Margin = Padding.Empty };
         for (int i = 0; i < 3; i++) layout.RowStyles.Add(new(SizeType.AutoSize)); Controls.Add(layout);
-        var selection = Row(5); selection.ColumnStyles.Add(new(SizeType.Absolute, 107)); selection.ColumnStyles.Add(new(SizeType.Percent, 100));
+        // Both rows line up, so they share the width of the longer label.
+        var itemLabel = Theme.Label(T("Objeto"), 10, true); var friendLabel = Theme.Label(T("Amistad"), 10, true);
+        int labelWidth = Math.Max(107, Math.Max(itemLabel.PreferredWidth, friendLabel.PreferredWidth) + friendLabel.Margin.Horizontal + 2);
+        var selection = Row(5); selection.ColumnStyles.Add(new(SizeType.Absolute, labelWidth)); selection.ColumnStyles.Add(new(SizeType.Percent, 100));
         selection.ColumnStyles.Add(new(SizeType.AutoSize)); selection.ColumnStyles.Add(new(SizeType.AutoSize)); selection.ColumnStyles.Add(new(SizeType.AutoSize));
-        selection.Controls.Add(Theme.Label(T("Objeto"), 10, true), 0, 0); selection.Controls.Add(picker, 1, 0);
+        selection.Controls.Add(itemLabel, 0, 0); selection.Controls.Add(picker, 1, 0);
         selection.Controls.Add(equip, 2, 0); selection.Controls.Add(remove, 3, 0); selection.Controls.Add(openBag, 4, 0);
         layout.Controls.Add(selection, 0, 0);
-        var friendshipRow = Row(4); friendshipRow.ColumnStyles.Add(new(SizeType.Absolute, 107)); friendshipRow.ColumnStyles.Add(new(SizeType.Absolute, 105));
+        var friendshipRow = Row(4); friendshipRow.ColumnStyles.Add(new(SizeType.Absolute, labelWidth)); friendshipRow.ColumnStyles.Add(new(SizeType.Absolute, 105));
         friendshipRow.ColumnStyles.Add(new(SizeType.AutoSize)); friendshipRow.ColumnStyles.Add(new(SizeType.Percent, 100));
-        var friendLabel = Theme.Label(T("Amistad"), 10, true);
         friendshipRow.Controls.Add(friendLabel, 0, 0); friendshipRow.Controls.Add(friendship, 1, 0); friendshipRow.Controls.Add(maxFriendship, 2, 0);
         layout.Controls.Add(friendshipRow, 0, 1);
         var details = Row(2); details.ColumnStyles.Add(new(SizeType.Percent, 100)); details.ColumnStyles.Add(new(SizeType.AutoSize));
