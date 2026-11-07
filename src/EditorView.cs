@@ -125,7 +125,7 @@ public sealed partial class EditorView : UserControl
         settingsButton.Click += (_, _) => SettingsRequested?.Invoke(); tips.SetToolTip(settingsButton, T("Configuración"));
         header.Controls.Add(settingsButton, 0, 0);
         var brandPanel = Table(1, 2); brandPanel.RowStyles.Add(new(SizeType.Percent, 68)); brandPanel.RowStyles.Add(new(SizeType.Percent, 32));
-        brandPanel.Controls.Add(brand, 0, 0);
+        brandPanel.Controls.Add(brand, 0, 0); brandPanel.SizeChanged += (_, _) => FitBrand();
         brandPanel.Controls.Add(Theme.Label(T("PREPARA TU PRÓXIMO COMBATE"), 8, true, Theme.Accent), 0, 1);
         header.Controls.Add(brandPanel, 1, 0);
         var fileActions = Flow(); fileActions.FlowDirection = FlowDirection.RightToLeft; fileActions.AutoSize = true; fileActions.AutoSizeMode = AutoSizeMode.GrowAndShrink;
@@ -683,7 +683,7 @@ public sealed partial class EditorView : UserControl
     void ApplyRules(GameRules rules)
     {
         binding = true;
-        brand.Text = BrandName;
+        brand.Text = BrandName; FitBrand();
         ivHeading.Text = $"{rules.IVName} · 0–{rules.MaxIV}"; evHeading.Text = $"{rules.EVName} · 0–{rules.MaxEV}";
         maxIV.Text = T("{0} a {1}", rules.IVName, rules.MaxIV);
         for (int i = 0; i < 6; i++) {
@@ -1146,6 +1146,31 @@ public sealed partial class EditorView : UserControl
         compare.Close(); scratchBackups = null;
     }
 
+    // A long game title in a long language would wrap, so the name steps down until it fits its line.
+    void FitBrand()
+    {
+        int room = brand.Parent!.ClientSize.Width - brand.Margin.Horizontal;
+        float size = 23;
+        for (; size > 12; size--)
+        {
+            using var font = Theme.Font(size, true);
+            if (TextRenderer.MeasureText(brand.Text, font).Width <= room) break;
+        }
+        if (brand.Font.Size != size) brand.Font = Theme.Font(size, true);
+    }
+
+    // Any game's title has to fit, not just the one of the save that's open.
+    void CheckBrand(Action<bool, string> Check)
+    {
+        foreach (var title in Enum.GetValues<GameVersion>().Select(GameRules.GameTitle).Distinct().Where(t => t.Length > 0))
+        {
+            brand.Text = "Editrainer " + T(title); FitBrand();
+            string cut = Clipped(brand.Parent!);
+            Check(cut.Length == 0, $"The title fits at any window size ({title}) {cut}");
+        }
+        brand.Text = BrandName; FitBrand();
+    }
+
     internal void OpenToolForChecks() => toolsMenu.Items[0].PerformClick();
 
     void CheckLayout(Action<bool, string> Check, string sizeLabel)
@@ -1212,6 +1237,7 @@ public sealed partial class EditorView : UserControl
         CheckZaTools(Check);
         CheckLayout(Check, "normal window");
         Window.Size = Window.MinimumSize; CheckLayout(Check, "minimum window");
+        CheckBrand(Check);
         CheckToolLayouts(Check, reportPath);
         CheckBoxMessages(Check);
         File.WriteAllText(reportPath, JsonSerializer.Serialize(new { passed = checks.Count, checks }, new JsonSerializerOptions { WriteIndented = true }));
