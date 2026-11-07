@@ -514,8 +514,10 @@ static class AllGames
         var entry = doc.Pokemon.First(p => !p.IsParty);
         var other = doc.Pokemon.Last(p => !p.IsParty);
         Check(label, Catalog.CheckLegality(entry).Report.Length != 0, "da un veredicto de legalidad");
-        string shortName = rules.IsGameBoy ? "ABC" : "Abc";
-        entry.Edit.Level = 42; entry.Edit.Nickname = shortName; entry.Edit.Trainer = "Ana".ToUpperInvariant();
+        // Japanese Blue has no Latin letters.
+        bool kana = entry.Original.Japanese && rules.IsGameBoy;
+        string shortName = kana ? "アイウ" : rules.IsGameBoy ? "ABC" : "Abc", trainerName = kana ? "アイ" : "ANA";
+        entry.Edit.Level = 42; entry.Edit.Nickname = shortName; entry.Edit.Trainer = trainerName;
         var balls = Catalog.GetBalls(entry);
         Check(label, rules.HasBall == balls.Count > 1, "ofrece Poké Balls solo donde existen", balls.Count.ToString());
         if (rules.HasBall) entry.Edit.Ball = balls.Last().Id;
@@ -524,7 +526,7 @@ static class AllGames
         Check(label, preview.ChecksumValid && preview.CurrentLevel == 42 && preview.Stat_Level == 42, "cambia el nivel", preview.CurrentLevel.ToString());
         Check(label, preview.Stat_HPMax == preview.GetStats(preview.PersonalInfo)[0], "recalcula las estadísticas con el nivel");
         Check(label, preview.Nickname == shortName && preview.IsNicknamed, "cambia el apodo", preview.Nickname);
-        Check(label, preview.OriginalTrainerName == "ANA", "cambia el entrenador", preview.OriginalTrainerName);
+        Check(label, preview.OriginalTrainerName == trainerName, "cambia el entrenador", preview.OriginalTrainerName);
         var cleared = other.Edit.Nickname; other.Edit.Nickname = shortName; other.Edit.Nickname = "";
         Check(label, other.Preview().Nickname.Equals(cleared, StringComparison.OrdinalIgnoreCase) && !other.Preview().IsNicknamed, "vaciar el apodo vuelve al nombre de la especie", other.Preview().Nickname);
         other.Edit.Nickname = new string('A', other.Original.MaxStringLengthNickname + 1);
@@ -536,7 +538,7 @@ static class AllGames
         File.WriteAllBytes(edited, doc.BuildOutput());
         var read = SaveDocument.Open(edited);
         var saved = read.Pokemon.First(p => p.Index == entry.Index && !p.IsParty);
-        Check(label, saved.Original.CurrentLevel == 42 && saved.Original.Nickname == shortName && saved.Original.OriginalTrainerName == "ANA", "el nivel y los nombres se guardan");
+        Check(label, saved.Original.CurrentLevel == 42 && saved.Original.Nickname == shortName && saved.Original.OriginalTrainerName == trainerName, "el nivel y los nombres se guardan");
         if (rules.HasBall) Check(label, saved.Original.Ball == balls.Last().Id, "la Poké Ball se guarda", saved.Original.Ball.ToString());
         Check(label, !saved.Dirty, "lo guardado queda sin cambios pendientes");
 

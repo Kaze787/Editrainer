@@ -605,6 +605,8 @@ public static class Catalog
     {
         var d = e.Edit;
         if (d.Nickname == e.Baseline.Nickname && d.Trainer == e.Baseline.Trainer) return false;
+        // Game Boy names can fill their field and lose the end mark, so the length is checked apart.
+        if (d.Nickname.Length > e.Original.MaxStringLengthNickname || d.Trainer.Length > e.Original.MaxStringLengthTrainer) return true;
         var preview = e.Preview();
         return d.Nickname != e.Baseline.Nickname && d.Nickname.Trim().Length != 0 && preview.Nickname != d.Nickname
             || d.Trainer != e.Baseline.Trainer && preview.OriginalTrainerName != d.Trainer;
