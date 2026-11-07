@@ -17,6 +17,11 @@ if (args[0] == "--forms")
     AllGames.ListForms(args[1]);
     return;
 }
+if (args[0] == "--za-tools")
+{
+    ZaChecks.Run(args[1], args[2]);
+    return;
+}
 if (args[0] == "--catalog")
 {
     File.WriteAllText(args[1], JsonSerializer.Serialize(Catalog.SpeciesIds));
@@ -247,3 +252,4 @@ Reject(() => SaveDocument.Open(copy), "Rejects corrupted input save");
 Check(SaveDocument.Hash(File.ReadAllBytes(source)) == protectedHash, "User's real save remains untouched by tests");
 File.WriteAllText(Path.Combine(work, "results.txt"), string.Join(Environment.NewLine, results));
 Console.WriteLine($"{results.Count} checks passed.");
+ZaChecks.Run(source, Path.Combine(work, "za"));

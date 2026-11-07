@@ -144,6 +144,17 @@ Click **Save game** to apply the money, item and Pokémon changes together, afte
 
 Rows keep their room for fields and labels. If you shrink the window and the content doesn't fit, you can scroll inside each tab.
 
+## Legends: Z-A tools
+
+With a Z-A save open, **Tools → Z-A tools…** gathers what only this game keeps. Everything stays pending until you press **Save game**, like any other edit, and counts towards the unsaved-changes prompt and the backup record.
+
+- **Donuts:** add donuts with up to three level 3 powers, add a shiny assortment, or remove one. New donuts are PKHeX's five-star template and fill free slots, so the ones you made stay as they are. Donuts belong to the Mega Dimension DLC.
+- **Clothing:** marks as bought what the save already has on record, kind by kind. It can't add anything else, because PKHeX has no list of Z-A's clothes, and it leaves hair and makeup alone.
+- **Points:** Royale, Infinite Royale and hyperspace survey points.
+- **Collection:** collects the Colorful Screws and the TMs on the map, marking each as taken and adding it to the bag. It only reaches places you've already visited, because a save has no record of the others. Screws stop at 100.
+
+Story progress, event flags, Mable's research, your position and your trainer pictures can't be edited here. Most event flags have no public name, so changing one would be blind.
+
 ## Backups
 
 Backups go in the `Backups` folder, inside the app's folder. The **Open backups** link opens it. Each save includes:
@@ -172,7 +183,7 @@ With the .NET 10 SDK installed, this builds the app and creates `Editrainer-wind
 .\build.ps1
 ```
 
-The save tests are in `tests`. They run on an isolated copy and never write to the save they receive. `--all-games <folder>` tests every game with generated saves, including every form of each one, in each language. `--strings src` checks that all the app's text is translated. Visual checks can be run with `Editrainer.exe --preview <save> <capture.png> <app-folder> <index> <tab>`.
+The save tests are in `tests`. They run on an isolated copy and never write to the save they receive. `--za-tools <save> <folder>` runs each Z-A tool through a real write and reopen on a copy of a real Z-A save. `--all-games <folder>` tests every game with generated saves, including every form of each one, in each language. `--strings src` checks that all the app's text is translated. Visual checks can be run with `Editrainer.exe --preview <save> <capture.png> <app-folder> <index> <tab>`.
 
 ## License and credits
 

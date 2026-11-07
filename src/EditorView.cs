@@ -68,6 +68,8 @@ public sealed class EditorView : UserControl
         BackColor = Theme.Surface, ForeColor = Theme.Ink, BorderStyle = BorderStyle.None, Margin = new Padding(3, 0, 3, 6),
     };
     readonly ContextMenuStrip toolsMenu = new();
+    readonly Button toolsButton = Theme.Button(T("Herramientas"));
+    ToolStripItem? zaTool;
     readonly ResourcesPanel resources = new();
     readonly EquipmentPanel equipment = new();
     TableLayoutPanel? detailsLayout, heroPanel;
@@ -130,7 +132,7 @@ public sealed class EditorView : UserControl
         BuildTools();
         if (toolsMenu.Items.Count != 0)
         {
-            var toolsButton = Theme.Button(T("Herramientas")); toolsButton.Click += (_, _) => toolsMenu.Show(toolsButton, new Point(0, toolsButton.Height));
+            toolsButton.Click += (_, _) => toolsMenu.Show(toolsButton, new Point(0, toolsButton.Height));
             fileActions.Controls.Add(toolsButton);
         }
         header.Controls.Add(fileActions, 2, 0); root.Controls.Add(header, 0, 0);
@@ -205,6 +207,15 @@ public sealed class EditorView : UserControl
     // Each tool that works on the whole save adds its entry here.
     void BuildTools()
     {
+        AddTool(T("Herramientas de Z-A…"), OpenZaTools);
+        zaTool = toolsMenu.Items[^1];
+    }
+
+    void OpenZaTools()
+    {
+        using (var dialog = new ZaToolsDialog(document!)) dialog.ShowDialog(Window);
+        resources.RefreshDraft();
+        Notify(document!.Za!.HasChanges ? T("Herramientas de Z-A listas. Guarda para aplicarlas.") : status.Text);
     }
 
     void AddTool(string text, Action run) => toolsMenu.Items.Add(text, null, (_, _) => { if (document != null) run(); });
@@ -497,6 +508,8 @@ public sealed class EditorView : UserControl
     void UpdateState()
     {
         bool loaded = document != null;
+        if (zaTool != null) zaTool.Available = document?.Rules.IsZA == true;
+        toolsButton.Visible = toolsMenu.Items.Cast<ToolStripItem>().Any(item => item.Available);
         shiny.Enabled = loaded && current != null;
         editor.Enabled = loaded; tabs.TabPages[0].Enabled = tabs.TabPages[1].Enabled = tabs.TabPages[DetailsTab].Enabled = loaded && current != null;
         equipment.Enabled = loaded && current != null;
@@ -522,7 +535,7 @@ public sealed class EditorView : UserControl
             evTotal.ForeColor = limit != 0 && total > limit ? Theme.Danger : Theme.Accent;
         }
         if (error == null) ShowLegality();
-        Text = AppTitle + (loaded && document!.HasChanges ? T(" · {0} cambios pendientes", document.DirtyCount + document.ResourceChangeCount) : "");
+        Text = AppTitle + (loaded && document!.HasChanges ? T(" · {0} cambios pendientes", document.DirtyCount + document.ResourceChangeCount + (document.Za?.ChangeCount ?? 0)) : "");
         teamGrid.Invalidate(); boxGrid.Invalidate();
     }
 
@@ -824,6 +837,7 @@ public sealed class EditorView : UserControl
         Check(!save.Enabled && !document.HasChanges && heroPanel?.Visible == false, "Resource undo clears global pending changes and the bag tab hides the Pokémon header");
         Choose(4); tabs.SelectedIndex = 0; equipment.RunInteractionChecks(Check); resources.RefreshDraft(); UpdateState();
         Check(!document.HasChanges && !save.Enabled, "Equipment and friendship test edits can be completely undone");
+        CheckZaTools(Check);
         CheckLayout(Check, "normal window");
         Window.Size = Window.MinimumSize; CheckLayout(Check, "minimum window");
         var fonts = Descendants(tabs).Select(c => (Control: c, Font: c.Font)).ToList();
@@ -877,7 +891,7 @@ public sealed class EditorView : UserControl
     static IEnumerable<Control> Descendants(Control parent) => parent.Controls.Cast<Control>().SelectMany(c => new[] { c }.Concat(Descendants(c)));
 
     // Text that doesn't fit its control, in whatever language is on screen.
-    static string Clipped(Control root) => string.Join(" | ", Descendants(root).Where(c => {
+    internal static string Clipped(Control root) => string.Join(" | ", Descendants(root).Where(c => {
         if (!c.Visible || c.Text.Length == 0 || c is not (Label { AutoEllipsis: false } or ButtonBase)) return false;
         var size = TextRenderer.MeasureText(c.Text, c.Font, new Size(c.ClientSize.Width, int.MaxValue), TextFormatFlags.WordBreak);
         return size.Height > c.ClientSize.Height + 1 || size.Width > c.ClientSize.Width + 1;
@@ -889,9 +903,26 @@ public sealed class EditorView : UserControl
         var checks = new List<string>();
         void Check(bool ok, string description) { if (!ok) throw new Exception(description); checks.Add(description); }
         Check(document != null && Strings.Current.Code == expected.Language && Theme.IsDark == expected.Dark, "The window opens in the chosen language and theme");
+        CheckZaTools(Check);
         CheckLayout(Check, "normal window");
         Window.Size = Window.MinimumSize; CheckLayout(Check, "minimum window");
         File.WriteAllText(reportPath, JsonSerializer.Serialize(new { passed = checks.Count, checks }, new JsonSerializerOptions { WriteIndented = true }));
+    }
+
+    // Shown out of sight, because a window placed by Windows would land on the user's screen.
+    void CheckZaTools(Action<bool, string> Check)
+    {
+        bool isZA = document!.Rules.IsZA;
+        Check(zaTool?.Available == isZA && toolsButton.Visible == toolsMenu.Items.Cast<ToolStripItem>().Any(item => item.Available), "The Z-A tools are in the menu only with a Z-A save open");
+        if (!isZA) return;
+        using var dialog = new ZaToolsDialog(document) { StartPosition = FormStartPosition.Manual, Location = new Point(-16000, -16000) };
+        dialog.Show(Window);
+        dialog.RunChecks(Check, Clipped);
+        resources.RefreshDraft(); UpdateState();
+        Check(!document.HasChanges && !save.Enabled, "Undoing the Z-A tools leaves nothing to save");
+        document.Za!.Points[0].Value++; UpdateState();
+        Check(document.HasChanges && save.Enabled && Text.EndsWith(T(" · {0} cambios pendientes", 1)), "What the Z-A tools prepare counts as a pending change");
+        document.Za.Reset(); UpdateState();
     }
 
     internal void PressSettings() => settingsButton.PerformClick();
@@ -901,12 +932,14 @@ public sealed class EditorView : UserControl
     {
         Pick(document!.Pokemon.First(p => !p.IsParty)); ivs[0].Value = ivs[0].Value == 13 ? 14 : 13;
         document.SetItemCount(1128, 7); tabs.SelectedIndex = 1;
+        document.Za?.AddDonuts([ZaEdits.TopPowers()[0].Hash], 1);
     }
 
     internal void CheckResumed(Snapshot before, string saveText, string itemName, Action<bool, string> Check)
     {
         var edited = current!; var open = document!;
         Check(open == before.Document && edited == before.Entry && edited.Dirty && open.GetItemCount(1128) == 7, "Pending edits survive the change");
+        Check(open.Za?.DonutsChanged != false, "What the Z-A tools prepared survives the change");
         Check(tabs.SelectedIndex == before.Tab && box == before.Box && box == open.BoxOf(edited), "The tab and the open box survive the change");
         Check(save.Text == saveText, $"The new view speaks the new language ({saveText})");
         Check(open.Items.First(i => i.Id == 1128).Name == itemName, $"Item names follow the language ({itemName})");

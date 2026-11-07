@@ -633,13 +633,14 @@ public sealed class SaveDocument
     public SaveFile Save { get; private set; } = null!;
     public GameRules Rules { get; private set; } = null!;
     public SAV9ZA? ZaSave => Save as SAV9ZA;
+    public ZaEdits? Za { get; private set; }
     public List<PokemonEntry> Pokemon { get; private set; } = [];
     public List<BagItem> Items { get; private set; } = [];
     readonly Dictionary<ushort, int> itemChanges = [];
     public IReadOnlyDictionary<ushort, int> ItemChanges => itemChanges;
     public long Money { get; set; }
     public bool MoneyChanged => Money != Save.Money;
-    public bool HasChanges => DirtyCount != 0 || MoneyChanged || itemChanges.Count != 0;
+    public bool HasChanges => DirtyCount != 0 || MoneyChanged || itemChanges.Count != 0 || Za?.HasChanges == true;
     public int ResourceChangeCount => (MoneyChanged ? 1 : 0) + itemChanges.Count;
     public int DirtyCount => Pokemon.Count(p => p.Dirty);
     public const int TeamSize = 6;
@@ -703,6 +704,7 @@ public sealed class SaveDocument
         var items = save is SAV9ZA za ? ReadBagZA(za, rules) : ReadBag(save, rules);
         var document = new SaveDocument { FilePath = Path.GetFullPath(path), OriginalBytes = bytes, OriginalHash = Hash(bytes), Save = save, Rules = rules,
             Pokemon = entries, Money = save.Money, Items = items.OrderBy(x => x.Name, StringComparer.CurrentCultureIgnoreCase).ToList() };
+        if (document.ZaSave is { } game) document.Za = new ZaEdits(document, game);
         document.Activate();
         return document;
     }
@@ -878,7 +880,7 @@ public sealed class SaveDocument
     public void ResetResources()
     {
         var previous = itemChanges.ToArray(); long previousMoney = Money; Money = Save.Money; itemChanges.Clear();
-        if (ValidateSupply() is not { } error) return;
+        if (ValidateSupply() is not { } error) { Za?.ForgetMachines(); return; }
         Money = previousMoney; foreach (var entry in previous) itemChanges[entry.Key] = entry.Value;
         throw new InvalidOperationException(T("Retira los objetos que acabas de equipar antes de deshacer la bolsa.") + " " + error);
     }
@@ -918,7 +920,9 @@ public sealed class SaveDocument
     {
         var touched = itemChanges.Keys.Concat(Pokemon.Where(p => p.Edit.HeldItem != p.Baseline.HeldItem)
             .SelectMany(p => new[] { p.Edit.HeldItem, p.Baseline.HeldItem }).Where(id => id != 0).Select(id => (ushort)id)).ToHashSet();
-        return touched.ToDictionary(id => id, GetItemCount);
+        var changes = touched.ToDictionary(id => id, GetItemCount);
+        if (Za?.PendingScrews is { } screws) changes[ColorfulScrew9a.ColorfulScrewItemIndex] = screws;
+        return changes;
     }
 
     public string? ValidateEdits()
@@ -926,7 +930,7 @@ public sealed class SaveDocument
         if (Money < 0 || Money > Rules.MaxMoney) return T("El dinero debe estar entre 0 y {0:N0}.", Rules.MaxMoney);
         if (Pokemon.Any(p => p.Edit.HeldItem != p.Baseline.HeldItem && p.Edit.HeldItem != 0 && !Items.Any(i => i.Id == p.Edit.HeldItem)))
             return T("Un Pokémon tiene preparado un objeto que no está disponible en esta partida.");
-        return Pokemon.Where(p => p.Dirty).Select(Catalog.Validate).FirstOrDefault(error => error != null) ?? ValidateSupply();
+        return Pokemon.Where(p => p.Dirty).Select(Catalog.Validate).FirstOrDefault(error => error != null) ?? ValidateSupply() ?? Za?.Validate();
     }
 
     public byte[] BuildOutput() => ZaSave is { } za ? BuildZA(za) : Build();
@@ -1023,6 +1027,7 @@ public sealed class SaveDocument
             if (e.IsParty) output.SetPartySlotAtIndex(p, e.Index, EntityImportSettings.None);
             else output.SetBoxSlotAtIndex(p, e.Index, EntityImportSettings.None);
         }
+        Za?.ApplyTo(output);
         var bytes = output.Write().ToArray();
         if (bytes.Length != OriginalBytes.Length || !SwishCrypto.GetIsHashValid(bytes))
             throw new InvalidOperationException(T("No se pudo verificar la integridad de la partida editada."));
@@ -1038,6 +1043,7 @@ public sealed class SaveDocument
         if (Pokemon.Any(p => p.Dirty && !p.IsParty)) AllowBlock(original.BoxInfo.Data);
         if (MoneyChanged) allowedBlocks.Add(SaveBlockAccessor9ZA.KMoney);
         if (effectiveItems.Count != 0) AllowBlock(original.Items.Data);
+        if (Za != null) allowedBlocks.UnionWith(Za.ChangedBlocks());
         for (int i = 0; i < original.AllBlocks.Count; i++)
         {
             var a = original.AllBlocks[i]; var b = reopened.AllBlocks[i];
@@ -1045,6 +1051,7 @@ public sealed class SaveDocument
                 throw new InvalidOperationException(T("Se detectó un cambio fuera de los datos que editaste."));
         }
         if (reopened.Money != (uint)Money) throw new InvalidOperationException(T("El dinero guardado no coincide con el solicitado."));
+        Za?.Verify(reopened);
         var oldItems = original.Items.Data; var newItems = reopened.Items.Data;
         for (int offset = 0; offset < oldItems.Length; offset++)
             if (oldItems[offset] != newItems[offset] && !effectiveItems.ContainsKey((ushort)(offset / InventoryItem9a.SIZE)))
@@ -1091,10 +1098,11 @@ public sealed class SaveDocument
             game = Rules.FullName, source = FilePath, destination, originalHash = OriginalHash, editedHash = Hash(bytes),
             money = new { before = Save.Money, after = Money },
             items = EffectiveItemChanges().Select(change => new { id = change.Key, name = Rules.ItemName(change.Key),
-                before = Items.FirstOrDefault(i => i.Id == change.Key)?.OriginalCount ?? 0, after = change.Value }),
+                before = Items.FirstOrDefault(i => i.Id == change.Key)?.OriginalCount ?? (int)(ZaSave?.Items.GetItemQuantity(change.Key) ?? 0), after = change.Value }),
             pokemon = Pokemon.Where(x => x.Dirty).Select(e => new {
                 e.DisplayName, e.SpeciesName, e.Location, before = e.Baseline, after = e.Edit,
             }),
+            za = Za?.Summary(),
         }, new JsonSerializerOptions { WriteIndented = true }));
         if (Hash(File.ReadAllBytes(backupFile)) != OriginalHash) throw new IOException(T("No se pudo verificar el respaldo."));
         var temp = destination + ".editrainer-" + Guid.NewGuid().ToString("N") + ".tmp";

@@ -35,12 +35,13 @@ static class Program
         Trace("Configuring Windows Forms");
         ApplicationConfiguration.Initialize();
         Trace("Configuration complete");
-        bool utility = args.Length > 0 && args[0] is "--preview" or "--ui-test" or "--layout-test" or "--settings-test" or "--settings-preview";
+        bool utility = args.Length > 0 && args[0] is "--preview" or "--ui-test" or "--layout-test" or "--settings-test" or "--settings-preview" or "--za-preview";
         string? path = utility ? args[1] : args.FirstOrDefault(File.Exists);
         string root = utility && args.Length > 3 ? args[3] : AppContext.BaseDirectory;
         var settings = utility ? UtilitySettings(args) : AppSettings.Load(root);
         settings.Apply();
         if (utility && args[0] == "--settings-preview") { SettingsDialog.SaveImage(settings, args[2]); return; }
+        if (utility && args[0] == "--za-preview") { ZaToolsDialog.SaveImage(SaveDocument.Open(args[1]), args[2], int.Parse(args[6])); return; }
         using var form = new MainForm(path, root, settings);
         if (!utility && args.Contains("--items")) form.Shown += (_, _) => form.View.OpenResources();
         if (!utility && args.Contains("--equipment")) form.Shown += (_, _) => form.View.OpenEquipment();
