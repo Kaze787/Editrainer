@@ -11,11 +11,15 @@ public sealed class MainForm : Form
     readonly SpriteStore sprites;
     EditorView view;
     bool unattended;
+    Exception? startupError;
 
     public AppSettings Settings { get; private set; }
     internal EditorView View => view;
-    /// <summary>Automatic runs have nobody to ask about unsaved changes.</summary>
+    /// <summary>Automatic runs have nobody to ask about unsaved changes, and nobody to click a dialog away.</summary>
     internal void RunUnattended() => unattended = true;
+    internal bool IsUnattended() => unattended;
+    /// <summary>What stopped the first save from opening in an automatic run, kept for its report.</summary>
+    internal Exception? StartupError() => startupError;
 
     public MainForm(string? initialPath, string? root, AppSettings settings)
     {
@@ -31,8 +35,12 @@ public sealed class MainForm : Form
         if (File.Exists(iconPath)) Icon = new Icon(iconPath);
         view = NewView();
         Shown += (_, _) => {
-            if (initialPath != null) view.LoadFile(initialPath);
-            else if (SaveLocator.FindNewest(appRoot) is { } detected) view.LoadFile(detected);
+            try
+            {
+                if (initialPath != null) view.LoadFile(initialPath);
+                else if (SaveLocator.FindNewest(appRoot) is { } detected) view.LoadFile(detected);
+            }
+            catch (Exception ex) when (unattended) { startupError = ex; }
         };
         FormClosing += (_, e) => { if (!unattended && !view.CanDiscard()) e.Cancel = true; };
     }
