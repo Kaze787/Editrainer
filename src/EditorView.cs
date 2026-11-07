@@ -918,6 +918,12 @@ public sealed class EditorView : UserControl
         using var dialog = new ZaToolsDialog(document) { StartPosition = FormStartPosition.Manual, Location = new Point(-16000, -16000) };
         dialog.Show(Window);
         dialog.RunChecks(Check, Clipped);
+        using (var blocked = new ZaToolsDialog(document, new ZaEdits(document, document.ZaSave!, donutBlock: 0, fieldItemBlock: 0)) { StartPosition = FormStartPosition.Manual, Location = new Point(-16000, -16000) })
+        {
+            blocked.Show(Window);
+            blocked.RunBlockedChecks(Check, Clipped);
+            blocked.Close();
+        }
         resources.RefreshDraft(); UpdateState();
         Check(!document.HasChanges && !save.Enabled, "Undoing the Z-A tools leaves nothing to save");
         document.Za!.Points[0].Value++; UpdateState();

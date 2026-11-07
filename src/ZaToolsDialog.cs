@@ -32,9 +32,9 @@ sealed class ZaToolsDialog : Form
     readonly Label screwText = Theme.Label("", 10), machineText = Theme.Label("", 10);
     readonly Button collectScrews = Theme.Button(T("Recoger")), collectMachines = Theme.Button(T("Recoger"));
 
-    public ZaToolsDialog(SaveDocument document)
+    public ZaToolsDialog(SaveDocument document, ZaEdits? other = null)
     {
-        this.document = document; edits = document.Za!;
+        this.document = document; edits = other ?? document.Za!;
         Text = T("Herramientas de Z-A"); Font = Theme.Font(); BackColor = Theme.Background; ForeColor = Theme.Ink;
         Size = new Size(1000, 640); MinimumSize = Size; StartPosition = FormStartPosition.CenterParent;
         MinimizeBox = MaximizeBox = false; ShowInTaskbar = false; AutoScaleMode = AutoScaleMode.Dpi;
@@ -214,9 +214,9 @@ sealed class ZaToolsDialog : Form
         allClothing.Text = open.Count != 0 && open.All(c => c.Box.Checked) ? T("Desmarcar todo") : T("Marcar todo");
         foreach (var (counter, field) in counters) field.Value = counter.Value;
         string screw = document.Rules.ItemName(ColorfulScrew9a.ColorfulScrewItemIndex);
-        screwText.Text = edits.CollectingScrews ? T("{0}: tendrás {1} al guardar.", screw, edits.ScrewsAfter)
-            : T("{0}: tienes {1}. Quedan {2} por recoger.", screw, edits.ScrewsHeld, edits.ScrewsLeft);
-        machineText.Text = edits.CollectingMachines ? T("MT del mapa: se recogerán {0} al guardar.", edits.MachinesLeft)
+        screwText.Text = edits.CollectionProblem ?? (edits.CollectingScrews ? T("{0}: tendrás {1} al guardar.", screw, edits.ScrewsAfter)
+            : T("{0}: tienes {1}. Quedan {2} por recoger.", screw, edits.ScrewsHeld, edits.ScrewsLeft));
+        machineText.Text = edits.CollectionProblem != null ? "" : edits.CollectingMachines ? T("MT del mapa: se recogerán {0} al guardar.", edits.MachinesLeft)
             : T("MT del mapa: quedan {0} por recoger.", edits.MachinesLeft);
         collectScrews.Text = edits.CollectingScrews ? T("No recoger") : T("Recoger");
         collectMachines.Text = edits.CollectingMachines ? T("No recoger") : T("Recoger");
@@ -236,7 +236,7 @@ sealed class ZaToolsDialog : Form
             int row = donuts.Rows.Add(donut.Name, new string('★', Math.Min(donut.Stars, MostStars)), donut.Powers);
             donuts.Rows[row].Tag = donut; donuts.Rows[row].Cells[2].ToolTipText = donut.Powers;
         }
-        pocket.Text = edits.HasDonutPocket ? T("Dónuts en el bolsillo: {0} de {1}", list.Count, ZaEdits.PocketSize) : T("Esta partida no tiene bolsillo de dónuts.");
+        pocket.Text = edits.DonutProblem ?? T("Dónuts en el bolsillo: {0} de {1}", list.Count, ZaEdits.PocketSize);
         binding = false;
     }
 
@@ -269,6 +269,16 @@ sealed class ZaToolsDialog : Form
     }).Select(c => $"{c.GetType().Name} {c.Text.Split('\n')[0]}"));
 
     static IEnumerable<Control> Descendants(Control parent) => parent.Controls.Cast<Control>().SelectMany(c => new[] { c }.Concat(Descendants(c)));
+
+    /// <summary>When a key doesn't open its block, the tools that need it stay off and say so.</summary>
+    internal void RunBlockedChecks(Action<bool, string> check, Func<Control, string> clipped)
+    {
+        check(pocket.Text == edits.DonutProblem && !addDonuts.Enabled && !assortment.Enabled && !removeDonut.Enabled, "The donut tools stay off and say why");
+        tabs.SelectedIndex = PointsTab; PerformLayout(); Application.DoEvents();
+        check(screwText.Text == edits.CollectionProblem && !collectScrews.Enabled && !collectMachines.Enabled, "Collecting stays off and says why");
+        string cut = clipped(this);
+        check(cut.Length == 0, $"The reason fits on the page {cut}");
+    }
 
     /// <summary>What a user does here, for the automatic checks, in any language and on any save.</summary>
     internal void RunChecks(Action<bool, string> check, Func<Control, string> clipped)

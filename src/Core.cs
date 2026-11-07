@@ -688,7 +688,7 @@ public sealed class SaveDocument
             .OrderBy(x => x.Name, StringComparer.CurrentCultureIgnoreCase).ToList();
     }
 
-    public static SaveDocument Open(string path)
+    public static SaveDocument Open(string path, Random? random = null)
     {
         var info = new FileInfo(path);
         if (!info.Exists || info.Length is < SmallestSave or > LargestSave)
@@ -706,7 +706,7 @@ public sealed class SaveDocument
         var items = save is SAV9ZA za ? ReadBagZA(za, rules) : ReadBag(save, rules);
         var document = new SaveDocument { FilePath = Path.GetFullPath(path), OriginalBytes = bytes, OriginalHash = Hash(bytes), Save = save, Rules = rules,
             Pokemon = entries, Money = save.Money, Items = items.OrderBy(x => x.Name, StringComparer.CurrentCultureIgnoreCase).ToList() };
-        if (document.ZaSave is { } game) document.Za = new ZaEdits(document, game);
+        if (document.ZaSave is { } game) document.Za = new ZaEdits(document, game, random);
         document.Activate();
         return document;
     }

@@ -31,9 +31,11 @@ public sealed record ZaPower(ulong Hash, string Label)
 public sealed class ZaEdits
 {
     public const int MaxPoints = 9_999_999, PocketSize = DonutPocket9a.MaxCount, PowersPerDonut = 3;
-    const int MostScrews = 100, FieldItemSize = 16, ShinyTypes = 19, FirstShinyPower = 3, FirstCatchingPower = 4;
+    // The figure PKHeX's own ColorfulScrew9a.CollectScrews stops at. Its bag gives the screw no maximum of its own.
+    const int MostScrews = 100;
+    const int FieldItemSize = 16, ShinyTypes = 19, FirstShinyPower = 3, FirstCatchingPower = 4;
     const string TopLevel = "_lv3";
-    // PKHeX keeps these two keys to itself.
+    // PKHeX keeps these two keys to itself, so each one has to prove it is the block PKHeX reads.
     internal const uint DonutBlock = 0xBE007476, FieldItemBlock = 0x2482AD60;
 
     static readonly (uint Key, string Name)[] Counters = [
@@ -58,11 +60,15 @@ public sealed class ZaEdits
     readonly List<string> screwsLeft;
     readonly List<(string FieldItem, ushort Item)> machinesLeft;
     readonly Dictionary<ushort, int> machinesBefore = [];
-    readonly Random random = new();
+    readonly Random random;
+    readonly bool pocketFound, pocketKnown, fieldItemsKnown;
 
-    internal ZaEdits(SaveDocument document, SAV9ZA save)
+    internal ZaEdits(SaveDocument document, SAV9ZA save, Random? random = null, uint donutBlock = DonutBlock, uint fieldItemBlock = FieldItemBlock)
     {
-        this.document = document; this.save = save; stage = (SAV9ZA)save.Clone();
+        this.document = document; this.save = save; this.random = random ?? new Random(); stage = (SAV9ZA)save.Clone();
+        pocketFound = save.Donuts.Data.Length >= PocketSize * Donut9a.Size;
+        pocketKnown = IsBlock(save, donutBlock, save.Donuts);
+        fieldItemsKnown = IsBlock(save, fieldItemBlock, save.Blocks.FieldItems);
         counters = Counters.Where(c => save.Blocks.TryGetBlock(c.Key, out var block) && block.Type == SCTypeCode.UInt32)
             .Select(c => new ZaCounter(c.Key, c.Name, save.GetValue<uint>(c.Key))).ToList();
         clothing = Wardrobe.Where(w => save.Blocks.TryGetBlock(w.Key, out _)).Select(w => {
@@ -70,10 +76,13 @@ public sealed class ZaEdits
             return new ZaClothing(w.Key, w.Name, known.Count, known.Count(i => i.IsOwned));
         }).ToList();
         // A save only lists the field items of the places its player has been to, so these are rarely all of them.
-        screwsLeft = ColorfulScrew9a.GetScrewLocations(save, false).Select(s => s.FieldItem).ToList();
-        machinesLeft = TechnicalMachine9a.TechnicalMachines.Where(m => IsWaiting(m.FieldItem) && document.Items.Any(i => i.Id == m.ItemID))
+        screwsLeft = fieldItemsKnown ? ColorfulScrew9a.GetScrewLocations(save, false).Select(s => s.FieldItem).ToList() : [];
+        machinesLeft = !fieldItemsKnown ? [] : TechnicalMachine9a.TechnicalMachines.Where(m => IsWaiting(m.FieldItem) && document.Items.Any(i => i.Id == m.ItemID))
             .Select(m => (m.FieldItem, m.ItemID)).ToList();
     }
+
+    // Writing through a key that isn't this block would only come to light as a rejected save.
+    internal static bool IsBlock(SAV9ZA save, uint key, IDataIndirect storage) => save.Blocks.TryGetBlock(key, out var block) && storage.Equals(block.Raw);
 
     bool IsWaiting(string fieldItem)
     {
@@ -96,7 +105,9 @@ public sealed class ZaEdits
     }
 
     #region Donuts
-    public bool HasDonutPocket => save.Donuts.Data.Length >= PocketSize * Donut9a.Size;
+    public bool HasDonutPocket => pocketFound && pocketKnown;
+    public string? DonutProblem => HasDonutPocket ? null : pocketFound
+        ? T("No reconozco dónde guarda esta partida los dónuts, así que no se pueden editar.") : T("Esta partida no tiene bolsillo de dónuts.");
     public bool DonutsChanged => !stage.Donuts.Data.SequenceEqual(save.Donuts.Data);
     public int DonutCount => HasDonutPocket ? UsedSlots(stage).Count() : 0;
 
@@ -143,7 +154,7 @@ public sealed class ZaEdits
     // PKHeX's template is a real five-star donut, so only its powers and its date change.
     int Fill(int amount, Func<ulong[]> powers)
     {
-        if (!HasDonutPocket) throw new InvalidOperationException(T("Esta partida no tiene bolsillo de dónuts."));
+        if (DonutProblem is { } problem) throw new InvalidOperationException(problem);
         if (amount < 1) throw new InvalidOperationException(T("Indica cuántos dónuts quieres agregar."));
         var free = Enumerable.Range(0, PocketSize).Where(i => !IsUsed(stage.Donuts.GetDonut(i))).Take(amount).ToList();
         if (free.Count == 0) throw new InvalidOperationException(T("El bolsillo de dónuts está lleno."));
@@ -160,8 +171,8 @@ public sealed class ZaEdits
     /// <summary>Takes a donut out and closes the gap, so the pocket stays in one piece.</summary>
     public void RemoveDonut(int slot)
     {
-        if (!HasDonutPocket || slot is < 0 or >= PocketSize || !IsUsed(stage.Donuts.GetDonut(slot)))
-            throw new InvalidOperationException(T("Selecciona un dónut."));
+        if (DonutProblem is { } problem) throw new InvalidOperationException(problem);
+        if (slot is < 0 or >= PocketSize || !IsUsed(stage.Donuts.GetDonut(slot))) throw new InvalidOperationException(T("Selecciona un dónut."));
         stage.Donuts.GetDonut(slot).Clear();
         int write = 0;
         foreach (int read in UsedSlots(stage).ToList())
@@ -188,6 +199,7 @@ public sealed class ZaEdits
     #endregion
 
     #region Collection
+    public string? CollectionProblem => fieldItemsKnown ? null : T("No reconozco dónde guarda esta partida los objetos del mapa, así que no se pueden recoger.");
     public int ScrewsHeld => (int)save.Items.GetItemQuantity(ColorfulScrew9a.ColorfulScrewItemIndex);
     public int ScrewsLeft => screwsLeft.Count;
     public int ScrewsAfter => Math.Max(ScrewsHeld, Math.Min(MostScrews, ScrewsHeld + ScrewsLeft));
@@ -223,7 +235,13 @@ public sealed class ZaEdits
     #endregion
 
     #region Writing
-    internal string? Validate() => counters.Any(c => c.Changed && c.Value > MaxPoints) ? T("Los puntos deben estar entre 0 y {0:N0}.", MaxPoints) : null;
+    internal string? Validate()
+    {
+        if (counters.Any(c => c.Changed && c.Value > MaxPoints)) return T("Los puntos deben estar entre 0 y {0:N0}.", MaxPoints);
+        // The bag tab leaves the screw out, so this is the only place that looks at how many there are.
+        return CollectingScrews && ScrewsAfter > MostScrews
+            ? T("{0}: la cantidad debe estar entre 0 y {1}.", document.Rules.ItemName(ColorfulScrew9a.ColorfulScrewItemIndex), MostScrews) : null;
+    }
 
     internal IEnumerable<uint> ChangedBlocks()
     {

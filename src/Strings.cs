@@ -372,6 +372,8 @@ public static class Strings
         ["Son del DLC Megadimensión. Los nuevos son de cinco estrellas y llevan los poderes que elijas."] = ("They belong to the Mega Dimension DLC. New ones have five stars and the powers you choose.", "这是“超次元”DLC 的内容。新甜甜圈为五星，并带有你选择的能力。", "Ils font partie du DLC Méga-Dimension. Les nouveaux ont cinq étoiles et les pouvoirs choisis."),
         ["Dónuts en el bolsillo: {0} de {1}"] = ("Donuts in the pocket: {0} of {1}", "口袋中的甜甜圈：{0} / {1}", "Beignets dans la poche : {0} sur {1}"),
         ["Esta partida no tiene bolsillo de dónuts."] = ("This save has no donut pocket.", "此存档没有甜甜圈口袋。", "Cette partie n’a pas de poche à beignets."),
+        ["No reconozco dónde guarda esta partida los dónuts, así que no se pueden editar."] = ("I can't tell where this save keeps its donuts, so they can't be edited.", "无法确定此存档保存甜甜圈的位置，因此不能编辑。", "Impossible de savoir où cette partie garde ses beignets : ils ne peuvent pas être modifiés."),
+        ["No reconozco dónde guarda esta partida los objetos del mapa, así que no se pueden recoger."] = ("I can't tell where this save keeps its map items, so they can't be collected.", "无法确定此存档保存地图道具的位置，因此不能收集。", "Impossible de savoir où cette partie garde les objets de la carte : ils ne peuvent pas être ramassés."),
         ["{0} dónuts preparados."] = ("{0} donuts prepared.", "已准备 {0} 个甜甜圈。", "{0} beignets préparés."),
         ["{0} quitado."] = ("{0} removed.", "已移除{0}。", "{0} retiré."),
         ["Elige entre 1 y {0} poderes."] = ("Choose between 1 and {0} powers.", "请选择 1 到 {0} 个能力。", "Choisissez entre 1 et {0} pouvoirs."),

@@ -5,7 +5,7 @@ using System.Text.Json;
 /// <summary>Each Z-A edit through a real write and reopen, always on copies of the save.</summary>
 static class ZaChecks
 {
-    const int RoyaleLike = 1234, OrdinaryPowers = 92;
+    const int RoyaleLike = 1234, OrdinaryPowers = 92, Seed = 20261106, Assorted = 40;
     static int passed;
     static string source = "", work = "", sourceHash = "";
 
@@ -23,12 +23,14 @@ static class ZaChecks
     }
 
     static SAV9ZA Read(string path) => (SAV9ZA)SaveUtil.GetSaveFile(File.ReadAllBytes(path))!;
-    static SaveDocument Fresh(string name)
+    static SaveDocument Fresh(string name, Random? random = null)
     {
         var copy = Path.Combine(work, name);
         File.Copy(source, copy, true);
-        return SaveDocument.Open(copy);
+        return SaveDocument.Open(copy, random);
     }
+
+    static bool Unchanged(SaveDocument doc) => !doc.HasChanges && doc.BuildOutput().SequenceEqual(doc.OriginalBytes);
 
     // The save written by the app, through the same door as the Save button.
     static (SaveDocument Document, string Backup) Written(SaveDocument edited)
@@ -66,9 +68,21 @@ static class ZaChecks
         var save = Read(source);
         Check(save.Blocks.GetBlock(ZaEdits.DonutBlock).Data.SequenceEqual(save.Donuts.Data) && save.Donuts.Data.Length == ZaEdits.PocketSize * Donut9a.Size, "The donut key opens the donut pocket");
         Check(save.Blocks.GetBlock(ZaEdits.FieldItemBlock).Data.SequenceEqual(save.Blocks.FieldItems.Data), "The field item key opens the field items");
+        Check(ZaEdits.IsBlock(save, ZaEdits.DonutBlock, save.Donuts) && ZaEdits.IsBlock(save, ZaEdits.FieldItemBlock, save.Blocks.FieldItems), "Both keys are the very blocks PKHeX reads");
+        Check(!ZaEdits.IsBlock(save, ZaEdits.FieldItemBlock, save.Donuts) && !ZaEdits.IsBlock(save, 0, save.Donuts), "Another key or a missing one is not taken for them");
         var doc = Fresh("blocks");
         Check(doc.Za != null && !doc.Za.HasChanges && !doc.HasChanges, "Opening a Z-A save prepares nothing");
-        Check(SaveDocument.Hash(doc.BuildOutput()) == sourceHash, "A Z-A save without edits comes out identical");
+        Check(doc.Za!.DonutProblem == null && doc.Za.CollectionProblem == null, "A real save has both tools available");
+        Check(Unchanged(doc), "A Z-A save without edits comes out identical");
+
+        var blocked = new ZaEdits(doc, doc.ZaSave!, donutBlock: ZaEdits.FieldItemBlock, fieldItemBlock: ZaEdits.DonutBlock);
+        Check(!blocked.HasDonutPocket && blocked.DonutProblem != null && blocked.Donuts().Count == 0, "A key that isn't the pocket turns the donut tools off and says why");
+        Reject(() => blocked.AddDonuts([ZaEdits.TopPowers()[0].Hash], 1), "Without the right key no donuts can be added");
+        Reject(() => blocked.AddShinyAssortment(1), "Without the right key no assortment can be added");
+        Reject(() => blocked.RemoveDonut(0), "Without the right key no donut can be removed");
+        Check(blocked.CollectionProblem != null && blocked.ScrewsLeft == 0 && blocked.MachinesLeft == 0, "A key that isn't the field items turns collecting off and says why");
+        blocked.SetCollectingScrews(true); blocked.SetCollectingMachines(true);
+        Check(!blocked.HasChanges && !blocked.CollectingScrews && !blocked.CollectingMachines, "With the wrong key there is nothing to collect");
     }
 
     static void CheckPoints()
@@ -90,7 +104,7 @@ static class ZaChecks
         tooMany.Za.Points[0].Value = ZaEdits.MaxPoints;
         Check(tooMany.ValidateEdits() == null, "The most points allowed are accepted");
         tooMany.Za.Reset();
-        Check(!tooMany.HasChanges && SaveDocument.Hash(tooMany.BuildOutput()) == sourceHash, "Undoing the points restores the exact save");
+        Check(Unchanged(tooMany), "Undoing the points restores the exact save");
     }
 
     static void CheckDonuts()
@@ -140,17 +154,21 @@ static class ZaChecks
         Check(compact.Za!.DonutCount == start + 2 && left.GetDonut(start).Flavor0 == one && left.GetDonut(start + 1).Flavor0 == three
             && left.GetDonut(start + 2).Data.ToArray().All(b => b == 0), "Removing a donut closes the gap and clears the end of the pocket");
 
-        var shiny = Fresh("donuts-shiny");
-        Check(shiny.Za!.AddShinyAssortment(40) == 40, "The shiny assortment adds what was asked");
+        var shiny = Fresh("donuts-shiny", new Random(Seed));
+        Check(shiny.Za!.AddShinyAssortment(Assorted) == Assorted, "The shiny assortment adds what was asked");
         var names = DonutInfo.Flavors.ToDictionary(f => f.Hash, f => f.Name);
         var (assorted, _) = Written(shiny);
-        foreach (int slot in Enumerable.Range(start, 40))
+        foreach (int slot in Enumerable.Range(start, Assorted))
         {
             var donut = assorted.ZaSave!.Donuts.GetDonut(slot);
+            Check(donut.FlavorCount == 3 && donut.GetFlavors().ToArray().All(p => names[p].EndsWith("_lv3")), $"The shiny donut in slot {slot} has three powers at their top level");
             int sparkling = int.Parse(names[donut.Flavor0][6..8]), catching = int.Parse(names[donut.Flavor2][6..8]);
             Check(names[donut.Flavor0].StartsWith("sweet_") && names[donut.Flavor2].StartsWith("fresh_") && catching == sparkling + 1
                 && names[donut.Flavor1] is "fresh_01_lv3" or "fresh_02_lv3" or "sweet_01_lv3", $"The shiny donut in slot {slot} matches its shiny and catching powers");
         }
+        static List<string> Powers(SaveDocument doc) => doc.Za!.Donuts().Select(d => d.Powers).ToList();
+        var same = Fresh("donuts-seed", new Random(Seed)); same.Za!.AddShinyAssortment(Assorted);
+        Check(Powers(same).SequenceEqual(Powers(assorted)), "The same seed gives the same assortment");
 
         var full = Fresh("donuts-full");
         Check(full.Za!.AddDonuts([one], ZaEdits.PocketSize * 2) == ZaEdits.PocketSize - start && full.Za.DonutCount == ZaEdits.PocketSize, "Adding stops when the pocket is full");
@@ -161,7 +179,7 @@ static class ZaChecks
 
         var undone = Fresh("donuts-undo");
         undone.Za!.AddDonuts([one], 3); undone.Za.Reset();
-        Check(!undone.HasChanges && SaveDocument.Hash(undone.BuildOutput()) == sourceHash, "Undoing donuts restores the exact save");
+        Check(Unchanged(undone), "Undoing donuts restores the exact save");
     }
 
     static void CheckClothing()
@@ -225,10 +243,23 @@ static class ZaChecks
 
         var undone = Fresh("screws-undo");
         undone.Za!.SetCollectingScrews(true); undone.Za.SetCollectingScrews(false);
-        Check(!undone.HasChanges && SaveDocument.Hash(undone.BuildOutput()) == sourceHash, "Not collecting the screws restores the exact save");
+        Check(Unchanged(undone), "Not collecting the screws restores the exact save");
         var none = saved.Za;
         none.SetCollectingScrews(true);
         Check(!none.CollectingScrews && !saved.HasChanges, "With no screws left there is nothing to collect");
+
+        const int TooMany = 120;
+        var inflated = Read(source);
+        inflated.Items.SetItemQuantity(ColorfulScrew9a.ColorfulScrewItemIndex, TooMany);
+        var path = Path.Combine(work, "screws-limit");
+        File.WriteAllBytes(path, inflated.Write().ToArray());
+        var limit = SaveDocument.Open(path);
+        Check(limit.ValidateEdits() == null && limit.Za!.ScrewsAfter == TooMany, "Collecting never lowers what a save already has");
+        limit.Za!.SetCollectingScrews(true);
+        Check(limit.ValidateEdits() != null, "Going over the screw limit is refused before saving");
+        Reject(() => limit.BuildOutput(), "Going over the screw limit can't be written");
+        limit.Za.SetCollectingScrews(false);
+        Check(limit.ValidateEdits() == null && !limit.HasChanges, "Leaving the screws out clears the refusal");
     }
 
     static void CheckMachines()
@@ -251,13 +282,28 @@ static class ZaChecks
 
         var undone = Fresh("machines-undo");
         undone.Za!.SetCollectingMachines(true); undone.Za.SetCollectingMachines(false);
-        Check(!undone.HasChanges && SaveDocument.Hash(undone.BuildOutput()) == sourceHash, "Not collecting the machines restores the exact save");
+        Check(Unchanged(undone), "Not collecting the machines restores the exact save");
 
         var bagUndo = Fresh("machines-bag");
         bagUndo.Za!.SetCollectingMachines(true); bagUndo.ResetResources();
-        Check(!bagUndo.Za.CollectingMachines && !bagUndo.HasChanges && SaveDocument.Hash(bagUndo.BuildOutput()) == sourceHash, "The bag tab's undo also forgets the machines");
+        Check(!bagUndo.Za.CollectingMachines && Unchanged(bagUndo), "The bag tab's undo also forgets the machines");
         bagUndo.Za.SetCollectingMachines(true);
         Check(bagUndo.Za.CollectingMachines && items.All(id => bagUndo.GetItemCount(id) == 1), "The machines can be collected again after that");
+        bagUndo.Za.Reset();
+        Check(Unchanged(bagUndo), "Undoing them a second way also restores the exact save");
+
+        var others = Fresh("machines-others");
+        others.Money = others.Save.Money == 4321 ? 1234 : 4321; others.SetItemCount(1128, 5);
+        others.Za!.SetCollectingMachines(true); others.Za.SetCollectingMachines(false);
+        Check(others.HasChanges && others.GetItemCount(1128) == 5 && items.All(id => others.GetItemCount(id) == 0), "Not collecting the machines leaves the other bag edits alone");
+        others.ResetResources();
+        Check(Unchanged(others), "With the bag undone as well, the save is exact again");
+
+        var pending = Fresh("machines-screws");
+        pending.Za!.SetCollectingScrews(true); pending.Za.SetCollectingMachines(true); pending.ResetResources();
+        Check(pending.Za.CollectingScrews && !pending.Za.CollectingMachines && pending.HasChanges, "The bag's undo leaves the screws prepared");
+        pending.Za.SetCollectingScrews(false);
+        Check(Unchanged(pending), "Leaving the screws out too makes the save exact again");
 
         var bagWins = Fresh("machines-count");
         bagWins.Za!.SetCollectingMachines(true); bagWins.SetItemCount(items[0], 0);
