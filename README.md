@@ -130,6 +130,21 @@ Pick a Pokémon from your team or boxes and open **Stats**. The held item and fr
 
 Item and friendship changes are applied with **Save game**. **Undo this Pokémon** restores the previous values and recalculates the bag quantities. If there's no room to return an item, or you're trying to undo getting a stone you just equipped, the app keeps the changes and tells you how to solve it.
 
+## Details
+
+Pick a Pokémon and open **Details**.
+
+- **Nickname**: leave it empty to go back to the species name.
+- **Original trainer**: the name stored in the Pokémon.
+- **Level**: changing it also updates the experience and recalculates the stats.
+- **Poké Ball**: from Gen 3 onwards.
+
+Names must fit the game's alphabet and length, and the app tells you if they don't.
+
+**Legality** shows PKHeX's verdict on the Pokémon as it would be saved, and updates as you edit. It's information only and never stops you from saving.
+
+**Copy Showdown** copies the Pokémon as a Showdown set. **Paste Showdown** applies a copied set to the selected Pokémon, as long as it's the same species: level, nickname, nature, IVs, EVs, ability, shiny status, the moves it can learn in this game, and the held item if it's in your bag. Whatever it can't use is listed at the bottom of the window, and the form doesn't change. As on Showdown, a set with no `Level:` line means level 100.
+
 ## Money and items
 
 The **Money and items** tab changes the save's money and prepares changes to the bag. The maximum depends on the game (9,999,999 in Z-A, 999,999 on Game Boy and GBA). **Maximum** fills in that amount without saving it yet.
