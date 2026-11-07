@@ -252,4 +252,5 @@ Reject(() => SaveDocument.Open(copy), "Rejects corrupted input save");
 Check(SaveDocument.Hash(File.ReadAllBytes(source)) == protectedHash, "User's real save remains untouched by tests");
 File.WriteAllText(Path.Combine(work, "results.txt"), string.Join(Environment.NewLine, results));
 Console.WriteLine($"{results.Count} checks passed.");
-ZaChecks.Run(source, Path.Combine(work, "za"));
+if (doc.ZaSave != null) ZaChecks.Run(source, Path.Combine(work, "za"));
+else Console.WriteLine("Z-A checks skipped: this save is from another game. Run them on a Z-A save with --za-tools.");
