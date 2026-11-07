@@ -1506,6 +1506,285 @@ static class AllGames
         CatchingMistakes(version, label, work);
     }
 
+    // Something the tab can change: whether this game keeps it, how to change it, and how to see it changed in a Pokémon.
+    sealed record MoreField(string Name, bool Kept, Action<PokemonEntry> Edit, Func<PKM, PokemonEntry, bool> Saved, bool OnHatched = false);
+
+    static int Marking(PKM pk, int index) => pk switch {
+        IAppliedMarkings<bool> plain => plain.GetMarking(index) ? 1 : 0,
+        IAppliedMarkings<MarkingColor> colored => (int)colored.GetMarking(index),
+        _ => -1,
+    };
+
+    static bool HasAllRibbons(PKM pk, GameRules rules) => Catalog.GetRibbons(rules).All(r => pk.GetType().GetProperty(r.Property)!.GetValue(pk) switch {
+        true => true, byte count => count == r.Max, _ => false,
+    }) && (pk is not IRibbonSetMemory6 memory || !rules.HasRibbons || memory.HasContestMemoryRibbon && memory.HasBattleMemoryRibbon);
+
+    // French or English: both are in every game, and in Gen 3 they share an alphabet with whatever the test save uses.
+    static int OtherLanguage(PokemonEntry e) => Catalog.GetLanguages(e).First(c => c.Id != e.Baseline.More.Language && c.Id is (int)LanguageID.English or (int)LanguageID.French).Id;
+
+    static List<MoreField> MoreFieldsOf(GameRules rules) => [
+        new("juego de origen", rules.HasOriginGame, e => Catalog.SetGame(e, Catalog.GetGames(e).First(c => c.Id != e.Baseline.More.Game).Id), (p, e) => (int)p.Version == e.Edit.More.Game),
+        new("idioma", rules.HasOriginGame, e => Catalog.SetLanguage(e, OtherLanguage(e)), (p, e) => p.Language == e.Edit.More.Language),
+        new("lugar de encuentro", rules.HasMetPlace, e => e.Edit.More.MetLocation = Catalog.GetLocations(e, false).Last(c => c.Id != 0 && c.Id != e.Baseline.More.MetLocation).Id, (p, e) => p.MetLocation == e.Edit.More.MetLocation),
+        new("nivel de encuentro", rules.HasMetLevel, e => e.Edit.More.MetLevel = 30, (p, _) => p.MetLevel == 30),
+        new("género del entrenador", rules.HasTrainerGender, e => e.Edit.More.TrainerGender = 1 - e.Baseline.More.TrainerGender, (p, e) => p.OriginalTrainerGender == e.Edit.More.TrainerGender),
+        new("fecha de encuentro", rules.HasDates, e => e.Edit.More.MetDate = new(2024, 2, 29), (p, _) => p.MetDate == new DateOnly(2024, 2, 29)),
+        new("lugar del huevo", rules.HasEggData, e => e.Edit.More.EggLocation = Catalog.GetLocations(e, true).Last(c => c.Id != 0 && c.Id != e.Baseline.More.EggLocation).Id, (p, e) => p.EggLocation == e.Edit.More.EggLocation, true),
+        new("fecha del huevo", rules.HasEggData, e => e.Edit.More.EggDate = new(2023, 12, 31), (p, _) => p.EggMetDate == new DateOnly(2023, 12, 31), true),
+        new("cintas y emblemas", rules.HasRibbons, e => { foreach (var r in Catalog.GetRibbons(rules)) e.Edit.More.SetRibbon(r.Property, r.Max); }, (p, _) => HasAllRibbons(p, rules)),
+        new("estadísticas de concurso", rules.HasContest, e => e.Edit.More.Contest = [10, 20, 30, 40, 50, 60],
+            (p, _) => p is IContestStats { ContestCool: 10, ContestBeauty: 20, ContestCute: 30, ContestSmart: 40, ContestTough: 50, ContestSheen: 60 }),
+        new("Pokérus", rules.HasPokerus, e => { e.Edit.More.PokerusStrain = 5; e.Edit.More.PokerusDays = 2; }, (p, _) => p.PokerusStrain == 5 && p.PokerusDays == 2),
+        new("PP extra", rules.HasPPUps, e => e.Edit.More.PPUps[0] = new(e.Edit.Moves[0], 3), (p, _) => p.Move1_PPUps == 3 && p.Move1_PP == p.GetMovePP(p.Move1, 3)),
+        new("movimientos recordables", rules.HasRelearn, e => { var moves = Catalog.GetRelearnMoves(e); e.Edit.More.Relearn = [(ushort)moves[1].Id, (ushort)moves[2].Id, 0, 0]; },
+            (p, e) => p.RelearnMove1 == e.Edit.More.Relearn[0] && p.RelearnMove2 == e.Edit.More.Relearn[1] && p.RelearnMove3 == 0),
+        new("entrenamiento máximo", rules.HasHyperTraining, e => { e.Edit.More.HyperTraining[0] = true; e.Edit.More.HyperTraining[3] = true; }, (p, _) => p is IHyperTrain { HT_HP: true, HT_SPE: true, HT_ATK: false }),
+        new("teratipo", rules.HasTera, e => e.Edit.More.TeraType = (int)MoveType.Fire, (p, _) => p is ITeraType t && t.GetTeraType() == MoveType.Fire),
+        new("nivel Dinamax", rules.HasDynamax, e => e.Edit.More.DynamaxLevel = 7, (p, _) => p is IDynamaxLevel { DynamaxLevel: 7 }),
+        new("Gigamax", rules.HasDynamax, e => e.Edit.More.Gigantamax = true, (p, _) => p is IGigantamax { CanGigantamax: true }),
+        new("altura y peso", rules.HasSize, e => { e.Edit.More.Height = 12; e.Edit.More.Weight = 240; },
+            (p, _) => p is IScaledSize { HeightScalar: 12, WeightScalar: 240 } && (p is not IScaledSizeValue v || v.HeightAbsolute == v.CalcHeightAbsolute && v.WeightAbsolute == v.CalcWeightAbsolute)),
+        new("escala", rules.HasScale, e => e.Edit.More.Scale = 77, (p, _) => p is IScaledSize3 { Scale: 77 }),
+        new("Alfa", rules.HasAlpha, e => e.Edit.More.Alpha = true, (p, _) => p is IAlpha { IsAlpha: true }),
+        new("GV", rules.HasGVs, e => e.Edit.More.GVs = [1, 2, 3, 4, 5, 6], (p, _) => p is IGanbaru { GV_HP: 1, GV_ATK: 2, GV_DEF: 3, GV_SPE: 4, GV_SPA: 5, GV_SPD: 6 }),
+        new("marcas", rules.HasMarkings, e => {
+            if (!rules.HasMarkings) { e.Edit.More.Markings = [1]; return; }
+            e.Edit.More.Markings[0] = rules.MaxMarking; e.Edit.More.Markings[^1] = 1;
+        }, (p, _) => Marking(p, 0) == rules.MaxMarking && Marking(p, rules.MarkingCount - 1) == 1),
+    ];
+
+    // Each field alone, then all of them through a real file, next to Pokémon nobody touches.
+    static void MoreFields(GameVersion version, string label, string work)
+    {
+        var sav = TestSaves.Start(version);
+        var rules = new GameRules(sav);
+        if (sav is not SAV7b) sav.SetPartySlotAtIndex(Make(sav, 133, version), 0, EntityImportSettings.None);
+        var plain = Make(sav, 25, version); plain.ClearNickname(); plain.RefreshChecksum();   // Gen 3 tells a nickname by its capitals
+        sav.SetBoxSlotAtIndex(plain, 0, EntityImportSettings.None);
+        var egg = Make(sav, 25, version);
+        if (rules.HasEggData) { egg.EggLocation = 1; egg.EggYear = 20; egg.EggMonth = 1; egg.EggDay = 2; egg.RefreshChecksum(); }
+        sav.SetBoxSlotAtIndex(egg, 1, EntityImportSettings.None);
+        sav.SetBoxSlotAtIndex(Make(sav, 1, version), 2, EntityImportSettings.None);
+        sav.Money = 3000;
+        var path = Path.Combine(work, version + ".more.sav");
+        File.WriteAllBytes(path, TestSaves.Finish(sav));
+
+        var doc = SaveDocument.Open(path);
+        PokemonEntry At(SaveDocument d, int index) => d.Pokemon.First(p => !p.IsParty && p.Index == index);
+        var entry = At(doc, 0); var hatched = At(doc, 1); var quiet = At(doc, 2);
+        Check(label, !rules.HasEggData || hatched.Original.WasEgg, "el Pokémon de prueba viene de un huevo");
+        Check(label, doc.DirtyCount == 0 && doc.BuildOutput().SequenceEqual(doc.OriginalBytes), "abrir no cambia nada");
+        Check(label, sav is SAV7b || entry.Preview().Data.SequenceEqual(entry.Original.Data), "sin cambios, el Pokémon sale byte a byte igual");
+        var fields = MoreFieldsOf(rules);
+        foreach (var field in fields)
+        {
+            var target = field.OnHatched ? hatched : entry;
+            field.Edit(target);
+            if (!field.Kept)
+            {
+                Check(label, !target.Dirty || Catalog.Validate(target) != null, "rechaza lo que este juego no guarda", field.Name);
+                doc.ResetPokemon(target);
+                continue;
+            }
+            Check(label, target.Dirty, "queda pendiente", field.Name);
+            var error = Catalog.Validate(target);
+            Check(label, error == null, "acepta el dato", $"{field.Name}: {error}");
+            var preview = target.Preview();
+            Check(label, preview.ChecksumValid && field.Saved(preview, target), "aplica el dato", field.Name);
+            Check(label, Draft.From(preview).SameMoreData(target.Edit), "no toca ningún otro dato", field.Name);
+            doc.ResetPokemon(target);
+            Check(label, !target.Dirty, "deshacer lo devuelve", field.Name);
+        }
+        Check(label, doc.BuildOutput().SequenceEqual(doc.OriginalBytes), "probar cada dato no deja rastro en el archivo");
+
+        if (rules.HasHyperTraining)
+        {
+            entry.Edit.More.HyperTraining[1] = true;
+            var trained = entry.Preview();
+            Check(label, trained.Stat_ATK == trained.GetStats(trained.PersonalInfo)[1], "el entrenamiento máximo recalcula las estadísticas");
+            doc.ResetPokemon(entry);
+        }
+        if (rules.HasGVs)
+        {
+            entry.Edit.More.GVs[1] = 5;
+            var trained = entry.Preview();
+            Check(label, trained.Stat_ATK == trained.GetStats(trained.PersonalInfo)[1], "los GV recalculan las estadísticas");
+            doc.ResetPokemon(entry);
+        }
+
+        foreach (var field in fields.Where(f => f.Kept)) field.Edit(field.OnHatched ? hatched : entry);
+        Check(label, doc.ValidateEdits() == null, "acepta todos los datos a la vez", doc.ValidateEdits() ?? "");
+        var bytes = doc.BuildOutput();
+        var edited = Path.Combine(work, version + ".more.edited.sav");
+        File.WriteAllBytes(edited, bytes);
+        var read = SaveDocument.Open(edited);
+        Check(label, read.Pokemon.Count == doc.Pokemon.Count, "conserva los Pokémon");
+        foreach (var field in fields.Where(f => f.Kept))
+        {
+            var (saved, draft) = field.OnHatched ? (At(read, 1), hatched) : (At(read, 0), entry);
+            Check(label, saved.Original.ChecksumValid && field.Saved(saved.Original, draft), "lo relee del archivo", field.Name);
+        }
+        foreach (var (saved, draft) in new[] { (At(read, 0), entry), (At(read, 1), hatched) })
+        {
+            Check(label, !saved.Dirty, "lo guardado queda sin cambios pendientes");
+            Check(label, saved.Edit.SameMoreData(draft.Edit), "relee exactamente lo pedido");
+        }
+        Check(label, At(read, 2).Original.Data.SequenceEqual(quiet.Original.Data), "el Pokémon que nadie tocó sale byte a byte igual");
+        if (sav is not SAV7b) Check(label, read.Pokemon.First(p => p.IsParty).Original.Data.SequenceEqual(doc.Pokemon.First(p => p.IsParty).Original.Data), "el equipo que nadie tocó sale byte a byte igual");
+
+        // What the check after saving sees: a value that came out different stops the save.
+        var clean = SaveUtil.GetSaveFile(bytes.ToArray(), edited)!;
+        doc.VerifyStorage(clean);
+        var tampered = SaveUtil.GetSaveFile(bytes.ToArray(), edited)!;
+        var wrong = tampered.GetBoxSlotAtIndex(entry.Index);
+        wrong.Move1_PPUps = (wrong.Move1_PPUps + 1) % (MoreData.MaxPPUps + 1);
+        wrong.RefreshChecksum();
+        tampered.SetBoxSlotAtIndex(wrong, entry.Index, EntityImportSettings.None);
+        Refused(label, () => doc.VerifyStorage(tampered), "detecta un dato distinto del pedido");
+
+        var undone = SaveDocument.Open(path);
+        foreach (var field in fields.Where(f => f.Kept)) field.Edit(At(undone, field.OnHatched ? 1 : 0));
+        undone.ResetPokemon(At(undone, 0)); undone.ResetPokemon(At(undone, 1));
+        Check(label, !undone.HasChanges && undone.BuildOutput().SequenceEqual(undone.OriginalBytes), "deshacer deja el archivo byte a byte igual");
+        MoreBackAndForth(rules, At(undone, 0), label);
+        Check(label, !undone.HasChanges && undone.BuildOutput().SequenceEqual(undone.OriginalBytes), "volver a cada valor a mano deja el archivo byte a byte igual");
+
+        MoreRefusals(sav, rules, doc, entry, quiet, label, version);
+
+        // The change log and the list of backups, on a throwaway copy.
+        var copy = Path.Combine(work, version + ".more.copy.sav");
+        File.Copy(path, copy, true);
+        var writer = SaveDocument.Open(copy);
+        fields.First(f => f.Kept && !f.OnHatched).Edit(At(writer, 0));
+        var root = Path.Combine(work, version + ".more.Backups");
+        var backup = writer.Write(copy, root, _ => null);
+        Check(label, File.ReadAllText(Path.Combine(backup, "cambios.json")).Contains("\"More\""), "el respaldo anota estos datos");
+        Check(label, SaveTools.ListBackups(root).First(b => b.Folder == backup).Changes.Any(c => c.Contains(Strings.T("Más datos"))), "la lista de respaldos los menciona");
+    }
+
+    // Each value and then the one it had, the way someone changes their mind.
+    static void MoreBackAndForth(GameRules rules, PokemonEntry e, string label)
+    {
+        var start = e.Baseline.More;
+        if (rules.HasOriginGame)
+        {
+            Catalog.SetGame(e, Catalog.GetGames(e).First(c => c.Id != start.Game).Id);
+            Catalog.SetGame(e, start.Game);
+            Catalog.SetLanguage(e, OtherLanguage(e));
+            Check(label, e.Preview().Nickname == SpeciesName.GetSpeciesNameGeneration(e.Original.Species, e.Edit.More.Language, e.Original.Format) && !e.Preview().IsNicknamed, "sin apodo, el nombre sigue al idioma", e.Preview().Nickname);
+            Catalog.SetLanguage(e, start.Language);
+        }
+        if (Catalog.GetRibbons(rules).FirstOrDefault() is { } ribbon)
+        {
+            e.Edit.More.SetRibbon(ribbon.Property, ribbon.Max);
+            Check(label, e.Dirty, "una cinta queda pendiente");
+            e.Edit.More.SetRibbon(ribbon.Property, 0);
+        }
+        if (rules.HasPPUps)
+        {
+            e.Edit.More.PPUps[0] = new(e.Edit.Moves[0], 2);
+            Check(label, e.Dirty, "los PP extra quedan pendientes");
+            e.Edit.More.PPUps[0] = new(e.Edit.Moves[0], 0);
+        }
+        Check(label, !e.Dirty, "volver a cada valor no deja cambios pendientes");
+    }
+
+    static void MoreRefusals(SaveFile sav, GameRules rules, SaveDocument doc, PokemonEntry entry, PokemonEntry quiet, string label, GameVersion version)
+    {
+        void Rejects(string what, PokemonEntry target, Action<Draft> edit)
+        {
+            edit(target.Edit);
+            Check(label, Catalog.Validate(target) != null, "rechaza " + what);
+            doc.ResetPokemon(target);
+        }
+        doc.ResetPokemon(entry); doc.ResetPokemon(quiet);
+        Rejects("una cinta de otro juego", entry, d => d.More.SetRibbon(Catalog.GetRibbons(rules).Any(r => r.IsMark) ? "RibbonDeNingunJuego" : "RibbonMarkLunchtime", 1));
+        if (Catalog.GetRibbons(rules).FirstOrDefault(r => r.IsCounted) is { } counted) Rejects("una cinta contada de más", entry, d => d.More.SetRibbon(counted.Property, counted.Max + 1));
+        if (rules.HasDates)
+        {
+            foreach (var date in new GameDate[] { new(2023, 2, 29), new(2024, 4, 31), new(2024, 13, 1), new(2024, 1, 0), new(rules.LastYear + 1, 1, 1) })
+                Rejects("la fecha " + date, entry, d => d.More.MetDate = date);
+            Rejects("una fecha de huevo imposible", entry, d => d.More.EggDate = new(2023, 2, 30));
+        }
+        if (rules.HasMetPlace)
+        {
+            Rejects("un lugar que no existe", entry, d => d.More.MetLocation = 64999);
+            Rejects("un nivel de encuentro imposible", entry, d => d.More.MetLevel = rules.MaxMetLevel + 1);
+        }
+        if (rules.HasEggData) Rejects("un lugar de huevo que no existe", entry, d => d.More.EggLocation = 64999);
+        if (rules.HasOriginGame)
+        {
+            Rejects("un juego que no puede ser", entry, d => d.More.Game = (int)GameVersion.Any);
+            Rejects("un idioma que no existe", entry, d => d.More.Language = 6);
+            Check(label, Catalog.GetLocations(entry, false).Count > 1, "ofrece lugares", Catalog.GetLocations(entry, false).Count.ToString());
+            var unhatched = Make(sav, 25, version); unhatched.IsEgg = true; unhatched.RefreshChecksum();
+            Rejects("cambiar estos datos en un huevo", new PokemonEntry(rules, false, 0, unhatched), d => d.More.MetLevel = 31);
+            var named = Make(sav, 25, version); named.SetNickname(rules.Generation == 3 ? "ABC" : "Abc"); named.RefreshChecksum();
+            var nicknamed = new PokemonEntry(rules, false, 0, named);
+            string name = named.Nickname;
+            Catalog.SetLanguage(nicknamed, OtherLanguage(nicknamed));
+            Check(label, nicknamed.Preview().Nickname == name && nicknamed.Preview().IsNicknamed, "un apodo no cambia con el idioma", nicknamed.Preview().Nickname);
+            if (rules.LanguageSetsAlphabet)
+            {
+                Catalog.SetLanguage(nicknamed, (int)LanguageID.Japanese);
+                Check(label, Catalog.Validate(nicknamed) != null || nicknamed.Preview().Nickname == name, "el idioma no borra un apodo en silencio", nicknamed.Preview().Nickname);
+            }
+        }
+        if (rules.HasPokerus)
+        {
+            Rejects("una cepa que no existe", entry, d => d.More.PokerusStrain = rules.MaxPokerusStrain + 1);
+            Rejects("más días de los que dura la cepa", entry, d => { d.More.PokerusStrain = 1; d.More.PokerusDays = 5; });
+            Rejects("días sin cepa", entry, d => d.More.PokerusDays = 1);
+        }
+        if (rules.HasPPUps)
+        {
+            Rejects("demasiados PP extra", entry, d => d.More.PPUps[0] = new(d.Moves[0], MoreData.MaxPPUps + 1));
+            ushort replacement = (ushort)Catalog.GetMoves(entry).First(m => m.Id != 0 && m.Id != entry.Edit.Moves[0]).Id;
+            entry.Edit.More.PPUps[0] = new(entry.Edit.Moves[0], 3);
+            entry.Edit.Moves[0] = replacement;
+            Check(label, entry.Preview().Move1_PPUps == 0, "un movimiento nuevo empieza sin PP extra");
+            entry.Edit.More.PPUps[0] = new(replacement, 3);
+            Check(label, entry.Preview().Move1_PPUps == 3, "el movimiento nuevo puede tener PP extra");
+            doc.ResetPokemon(entry);
+        }
+        if (rules.HasRelearn)
+        {
+            ushort move = (ushort)Catalog.GetRelearnMoves(entry)[1].Id;
+            Rejects("un recordable repetido", entry, d => d.More.Relearn = [move, move, 0, 0]);
+            Rejects("un hueco en los recordables", entry, d => d.More.Relearn = [0, move, 0, 0]);
+            Rejects("un recordable que no existe", entry, d => d.More.Relearn = [60000, 0, 0, 0]);
+        }
+        if (rules.HasContest) Rejects("una estadística de concurso de más", entry, d => d.More.Contest[0] = MoreData.MaxContest + 1);
+        if (rules.HasTera)
+        {
+            Rejects("un teratipo que no existe", entry, d => d.More.TeraType = TeraTypeUtil.MaxType + 1);
+            entry.Edit.More.TeraType = TeraTypeUtil.Stellar;
+            Check(label, Catalog.Validate(entry) == null && ((ITeraType)entry.Preview()).GetTeraType() == (MoveType)TeraTypeUtil.Stellar, "acepta el teratipo Astral");
+            doc.ResetPokemon(entry);
+            Check(label, Catalog.GetTeraTypes().Count == TeraTypeUtil.MaxType + 2, "ofrece los dieciocho tipos y el Astral");
+            if (sav.Personal.IsPresentInGame((ushort)Species.Ogerpon, 0)) Rejects("cambiar el teratipo de Ogerpon", Entry(sav, rules, (ushort)Species.Ogerpon, version), d => d.More.TeraType = (int)MoveType.Fire);
+        }
+        if (rules.HasDynamax)
+        {
+            Rejects("un nivel Dinamax de más", entry, d => d.More.DynamaxLevel = MoreData.MaxDynamaxLevel + 1);
+            Rejects("Gigamax en quien no lo tiene", quiet, d => d.More.Gigantamax = true);
+            if (sav.Personal.IsPresentInGame((ushort)Species.Zacian, 0)) Rejects("dinamaxizar a Zacian", Entry(sav, rules, (ushort)Species.Zacian, version), d => d.More.DynamaxLevel = 1);
+        }
+        if (rules.HasSize) Rejects("una altura de más", entry, d => d.More.Height = MoreData.MaxScalar + 1);
+        if (rules.HasGVs) Rejects("un GV que el IV no alcanza", entry, d => { d.IVs[0] = 31; d.More.GVs[0] = GanbaruExtensions.TrueMax; });
+        if (rules.HasMarkings) Rejects("una marca que no existe", entry, d => d.More.Markings[0] = rules.MaxMarking + 1);
+        Check(label, Catalog.Validate(entry) == null, "tras los rechazos el Pokémon sigue siendo válido");
+
+        // A Pokémon can't show off a ribbon that was taken away from it.
+        if (rules.HasRibbons && entry.Original.Clone() is IRibbonSetAffixed affixed and IRibbonIndex index and IRibbonSetCommon6 ribbons)
+        {
+            ribbons.RibbonChampionKalos = true; affixed.AffixedRibbon = (sbyte)RibbonIndex.ChampionKalos;
+            var wearing = new PokemonEntry(rules, false, 0, (PKM)affixed);
+            wearing.Edit.More.SetRibbon(nameof(IRibbonSetCommon6.RibbonChampionKalos), 0);
+            Check(label, wearing.Preview() is IRibbonSetAffixed { AffixedRibbon: AffixedRibbon.None } && !((IRibbonIndex)wearing.Preview()).GetRibbon((int)RibbonIndex.ChampionKalos), "quitar la cinta que luce la deja de lucir");
+        }
+    }
+
     static void LanguageSwitch(GameVersion version, string label, string work)
     {
         var doc = SaveDocument.Open(Path.Combine(work, version + ".sav"));
@@ -1544,6 +1823,8 @@ static class AllGames
                 foreach (var pouch in Enum.GetValues<InventoryType>())
                     Check(name, Strings.Has(rules.PouchName(pouch)), "traduce el bolsillo", rules.PouchName(pouch));
                 Check(name, Enumerable.Range(0, 18).All(t => Catalog.TypeName(t).Trim().Length > 0), "nombra los tipos");
+                Check(name, Catalog.GetRibbons(rules).All(r => r.Label.Trim().Length > 0), "nombra las cintas y los emblemas");
+                Check(name, Catalog.GetTeraTypes().All(t => t.Label.Trim().Length > 0), "nombra los teratipos");
                 for (ushort species = 1; species <= sav.MaxSpeciesID; species++)
                 {
                     if (!sav.Personal.IsPresentInGame(species, 0)) continue;
@@ -1744,6 +2025,19 @@ static class AllGames
             Check(label, DifferentSlots(boxes, sorted.BoxInfo.Data, slot).All(i => i < save.BoxSlotCount), "ordenar toca solo esa caja");
             doc.ResetLayout();
         }
+        // Everything the tab can change on one Pokémon: its place changes and no other does.
+        var more = SaveDocument.Open(source);
+        var subject = more.Pokemon.First(p => !p.IsParty);
+        var fields = MoreFieldsOf(more.Rules).Where(f => f.Kept && !f.OnHatched).ToList();
+        foreach (var field in fields) field.Edit(subject);
+        Check(label, more.ValidateEdits() == null, "acepta todos los datos de la pestaña", more.ValidateEdits() ?? "");
+        var rewritten = Written(more, work, "more");
+        Check(label, DifferentSlots(boxes, rewritten.BoxInfo.Data, slot).SequenceEqual(new[] { subject.Index }), "los datos de la pestaña solo cambian su lugar");
+        Check(label, DifferentSlots(party, rewritten.PartyInfo.Data, teamSlot).Count == 0, "los datos de la pestaña no tocan el equipo");
+        var stored = rewritten.GetBoxSlotAtIndex(subject.Index);
+        foreach (var field in fields) Check(label, field.Saved(stored, subject), "la partida real guarda el dato", field.Name);
+        more.ResetPokemon(subject);
+        Check(label, SaveDocument.Hash(more.BuildOutput()) == hash, "deshacer la pestaña deja la partida idéntica");
         Check(label, !doc.HasChanges && SaveDocument.Hash(doc.BuildOutput()) == hash, "deshecho todo, la partida queda idéntica");
         Check(label, SaveDocument.Hash(File.ReadAllBytes(source)) == hash, "el archivo de origen no se toca");
         Console.WriteLine();
@@ -1769,6 +2063,22 @@ static class AllGames
         Environment.ExitCode = failed == 0 ? 0 : 1;
     }
 
+    public static void RunMore(string work)
+    {
+        Directory.CreateDirectory(work);
+        foreach (var (game, label) in Games)
+        {
+            int before = failed;
+            try { MoreFields(game, label, work); }
+            catch (Exception ex) { failed++; failures.Add($"{label}: {ex.GetType().Name}: {ex.Message.Split('\n')[0]}  {ex.StackTrace?.Split('\n').FirstOrDefault()?.Trim()}"); }
+            Console.WriteLine($"{(failed == before ? "ok   " : "FALLA")} {label}");
+        }
+        Console.WriteLine();
+        foreach (var f in failures) Console.WriteLine("  " + f);
+        Console.WriteLine($"\nRESULTADO: {Games.Length} juegos, {passed} comprobaciones correctas, {failed} fallidas");
+        Environment.ExitCode = failed == 0 ? 0 : 1;
+    }
+
     public static void Run(string work)
     {
         // Colosseum and XD are left out: their saves live in an encrypted GameCube container
@@ -1777,7 +2087,7 @@ static class AllGames
         foreach (var (game, label) in Games)
         {
             int before = failed;
-            try { Run(game, label, work); FormsOnDisk(game, label, work); StuckForms(game, label); Abilities(game, label, work); Details(game, label, work); SaveTool(game, label, work); Trainer(game, label, work); Pokedex(game, label, work); BoxTools(game, label, work); AbilityWithForms(game, label); LanguageSwitch(game, label, work); InEveryLanguage(game, label, work); }
+            try { Run(game, label, work); FormsOnDisk(game, label, work); StuckForms(game, label); Abilities(game, label, work); Details(game, label, work); MoreFields(game, label, work); SaveTool(game, label, work); Trainer(game, label, work); Pokedex(game, label, work); BoxTools(game, label, work); AbilityWithForms(game, label); LanguageSwitch(game, label, work); InEveryLanguage(game, label, work); }
             catch (Exception ex) { failed++; failures.Add($"{label}: {ex.GetType().Name}: {ex.Message.Split('\n')[0]}  {ex.StackTrace?.Split('\n').FirstOrDefault()?.Trim()}"); }
             Console.WriteLine($"{(failed == before ? "ok   " : "FALLA")} {label}");
         }

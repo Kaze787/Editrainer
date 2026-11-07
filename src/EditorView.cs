@@ -177,6 +177,7 @@ public sealed partial class EditorView : UserControl
         BuildStatsTab(); BuildMovesTab();
         var bagPage = new TabPage(T("Dinero y objetos")) { BackColor = Theme.Surface }; bagPage.Controls.Add(resources); tabs.TabPages.Add(bagPage);
         BuildDetailsTab();
+        BuildMoreDataTab();
         editor.Controls.Add(tabs); editor.Padding = new Padding(16, 6, 16, 0);
         right.Controls.Add(editor, 0, 1); validation.Padding = new Padding(16, 0, 12, 0); validation.AutoEllipsis = true;
         right.Controls.Add(validation, 0, 2); body.Controls.Add(right, 1, 0); root.Controls.Add(body, 0, 2);
@@ -431,6 +432,7 @@ public sealed partial class EditorView : UserControl
             }
             optimizeAll.Visible = !showBag;
             if (tabs.SelectedIndex == 0 && document != null && current != null) equipment.Bind(document, current, true);
+            if (tabs.SelectedIndex == MoreDataTab && current != null) BindMoreData(current);
             ShowLegality();
         };
         search.TextChanged += (_, _) => RefreshList();
@@ -538,6 +540,7 @@ public sealed partial class EditorView : UserControl
         if (previousTarget != null && target.Items.Cast<EvolutionTarget>().FirstOrDefault(t => t.Species == previousTarget.Species && t.Form == previousTarget.Form) is { } old)
             target.SelectedItem = old;
         if (document != null) equipment.Bind(document, e);
+        if (tabs.SelectedIndex == MoreDataTab) BindMoreData(e);
         binding = false; UpdateBuildHint(); UpdateState();
     }
 
@@ -568,7 +571,7 @@ public sealed partial class EditorView : UserControl
         if (zaTool != null) zaTool.Available = document?.Rules.IsZA == true;
         toolsButton.Visible = toolsMenu.Items.Cast<ToolStripItem>().Any(item => item.Available);
         shiny.Enabled = loaded && current != null;
-        editor.Enabled = loaded; tabs.TabPages[0].Enabled = tabs.TabPages[1].Enabled = tabs.TabPages[DetailsTab].Enabled = loaded && current != null;
+        editor.Enabled = loaded; tabs.TabPages[0].Enabled = tabs.TabPages[1].Enabled = tabs.TabPages[DetailsTab].Enabled = tabs.TabPages[MoreDataTab].Enabled = loaded && current != null;
         equipment.Enabled = loaded && current != null;
         restoreSelected.Enabled = current?.Dirty == true;
         optimizeAll.Enabled = loaded && document!.Pokemon.Count != 0;
@@ -697,6 +700,7 @@ public sealed partial class EditorView : UserControl
         teamTitle.Visible = teamGrid.Visible = hasTeam;
         sidebar.RowStyles[TeamTitleRow].Height = hasTeam ? TeamTitleHeight : 0;
         sidebar.RowStyles[TeamGridRow].Height = hasTeam ? TeamGridHeight : 0;
+        ApplyMoreRules(rules);
         binding = false;
     }
 
@@ -931,6 +935,7 @@ public sealed partial class EditorView : UserControl
         Check(!document.HasChanges && !save.Enabled, "Equipment and friendship test edits can be completely undone");
         CheckZaTools(Check);
         CheckSaveTools(Check, ToolScratch(reportPath));
+        CheckMoreData(Check);
         Check(toolsMenu.Items.Cast<ToolStripItem>().Any(i => i.Text == T("Entrenador…")) && toolsMenu.Items.Cast<ToolStripItem>().Any(i => i.Text == T("Pokédex…")), "The Tools menu offers the trainer and the Pokédex");
         using (var dialog = OffScreen(new TrainerDialog(document))) dialog.RunInteractionChecks(document, Check);
         using (var dialog = OffScreen(new PokedexDialog(document))) dialog.RunInteractionChecks(document, Check);
@@ -1183,6 +1188,7 @@ public sealed partial class EditorView : UserControl
             if (page == 2) Check(resources.VisibleItemRows >= 3, $"The item list shows several rows ({sizeLabel}: {resources.VisibleItemRows})");
         }
         tabs.SelectedIndex = 0;
+        CheckMoreLayout(Check, sizeLabel);
         CheckTools(Check, sizeLabel);
     }
 

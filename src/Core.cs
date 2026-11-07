@@ -50,12 +50,13 @@ public sealed class Draft
     public string Nickname { get; set; } = "";
     public string Trainer { get; set; } = "";
     public int Ball { get; set; }
+    public MoreData More { get; set; } = new();
     public static Draft From(PKM p)
     {
         var d = new Draft { Nature = p.StatAlignment, IsShiny = p.IsShiny, HeldItem = p.HeldItem, Friendship = p.CurrentFriendship,
             Form = p.Form, FormArgument = (p as IFormArgument)?.FormArgument ?? 0,
             Ability = p.Ability, AbilitySlot = Math.Clamp(p.AbilityNumber >> 1, 0, 2),
-            Level = p.CurrentLevel, Nickname = p.Nickname, Trainer = p.OriginalTrainerName, Ball = p.Ball };
+            Level = p.CurrentLevel, Nickname = p.Nickname, Trainer = p.OriginalTrainerName, Ball = p.Ball, More = MoreData.From(p) };
         p.GetIVs(d.IVs); p.GetMoves(d.Moves);
         if (p is IAwakened a) d.EVs = [a.AV_HP, a.AV_ATK, a.AV_DEF, a.AV_SPE, a.AV_SPA, a.AV_SPD];
         else p.GetEVs(d.EVs);
@@ -65,11 +66,14 @@ public sealed class Draft
         && HeldItem == other.HeldItem && Friendship == other.Friendship && Form == other.Form
         && FormArgument == other.FormArgument && Ability == other.Ability && AbilitySlot == other.AbilitySlot
         && Level == other.Level && Nickname == other.Nickname && Trainer == other.Trainer && Ball == other.Ball && IVs.SequenceEqual(other.IVs)
-        && EVs.SequenceEqual(other.EVs) && Moves.SequenceEqual(other.Moves);
+        && EVs.SequenceEqual(other.EVs) && Moves.SequenceEqual(other.Moves) && SameMoreData(other);
+    public bool SameMoreData(Draft other) => More.SameAs(other.More) && Enumerable.Range(0, Moves.Length).All(i => PPUpsOf(i) == other.PPUpsOf(i));
+    /// <summary>The PP Ups of the move in a slot. A move that just arrived there has none.</summary>
+    public int PPUpsOf(int slot) => More.PPUps[slot].Move == Moves[slot] ? More.PPUps[slot].Count : 0;
 }
 
 /// <summary>What each game allows: its limits, its data tables and the names it uses.</summary>
-public sealed class GameRules
+public sealed partial class GameRules
 {
     public const string ExperienceCategory = "Experiencia";
     const int ShinyDV = 10, GameBoyUnownLetters = 26, UnownLetters = 28, UnownDVBits = 6, UnownDVStep = 10;
@@ -272,7 +276,7 @@ public sealed class PokemonEntry(GameRules rules, bool party, int index, PKM pok
     public PKM Preview() => Catalog.Apply(this);
 }
 
-public static class Catalog
+public static partial class Catalog
 {
     const int Gen1TypeOffset = 11, FirstGen1SpecialType = 20, LongestMoveTable = 1024;
     public static GameStrings Names { get; private set; } = GameInfo.GetStrings(Strings.Current.GameData);
@@ -493,7 +497,8 @@ public static class Catalog
         bool formChanged = d.Form != entry.Baseline.Form || d.FormArgument != entry.Baseline.FormArgument;
         bool abilityChanged = d.Ability != entry.Baseline.Ability || d.AbilitySlot != entry.Baseline.AbilitySlot;
         bool statsChanged = formChanged || !ivs.SequenceEqual(entry.Baseline.IVs) || !evs.SequenceEqual(entry.Baseline.EVs)
-            || d.Nature != entry.Baseline.Nature || d.Level != entry.Baseline.Level;
+            || d.Nature != entry.Baseline.Nature || d.Level != entry.Baseline.Level
+            || !d.More.HyperTraining.SequenceEqual(entry.Baseline.More.HyperTraining) || !d.More.GVs.SequenceEqual(entry.Baseline.More.GVs);
         p.SetIVs(ivs);
         if (p is IAwakened a) SetAwakening(a, evs); else p.SetEVs(evs);
         if (formChanged && rules.HasStoredForm) ChangeForm(p, d);
@@ -501,6 +506,7 @@ public static class Catalog
         if (rules.HasHeldItems && d.HeldItem != entry.Baseline.HeldItem) p.HeldItem = d.HeldItem;
         if (rules.HasFriendship && d.Friendship != entry.Baseline.Friendship) p.CurrentFriendship = (byte)d.Friendship;
         if (d.Level != entry.Baseline.Level) p.CurrentLevel = (byte)d.Level;
+        ApplyOrigin(p, entry);
         if (d.Nickname != entry.Baseline.Nickname) p.SetNickname(d.Nickname.Trim().Length == 0 ? "" : d.Nickname);
         if (d.Trainer != entry.Baseline.Trainer) p.OriginalTrainerName = d.Trainer;
         if (rules.HasBall && d.Ball != entry.Baseline.Ball) p.Ball = (byte)d.Ball;
@@ -517,6 +523,7 @@ public static class Catalog
             }
             p.HealPPIndex(i);
         }
+        ApplyMore(p, entry);
         ApplyPid(p, rules, d, abilityChanged);
         if (statsChanged)
         {
@@ -600,19 +607,20 @@ public static class Catalog
         if (d.Level != e.Baseline.Level && d.Level is < 1 or > Experience.MaxLevel) return T("El nivel debe estar entre 1 y {0}.", Experience.MaxLevel);
         if (d.Trainer != e.Baseline.Trainer && d.Trainer.Trim().Length == 0) return T("El nombre del entrenador no puede quedar vacío.");
         if (d.Ball != e.Baseline.Ball && GetBalls(e).All(b => b.Id != d.Ball)) return T("Esa Poké Ball no existe en este juego.");
-        return LosesText(e) ? T("Ese nombre tiene caracteres que este juego no admite.") : null;
+        return ValidateMore(e) ?? (LosesText(e) ? T("Ese nombre tiene caracteres que este juego no admite.") : null);
     }
 
     // Each game has its own alphabet and lengths, and whatever it can't store just disappears.
     static bool LosesText(PokemonEntry e)
     {
         var d = e.Edit;
-        if (d.Nickname == e.Baseline.Nickname && d.Trainer == e.Baseline.Trainer) return false;
+        bool newAlphabet = e.Rules.LanguageSetsAlphabet && d.More.Language != e.Baseline.More.Language;
+        if (d.Nickname == e.Baseline.Nickname && d.Trainer == e.Baseline.Trainer && !newAlphabet) return false;
         // Game Boy names can fill their field and lose the end mark, so the length is checked apart.
         if (d.Nickname.Length > e.Original.MaxStringLengthNickname || d.Trainer.Length > e.Original.MaxStringLengthTrainer) return true;
         var preview = e.Preview();
-        return d.Nickname != e.Baseline.Nickname && d.Nickname.Trim().Length != 0 && preview.Nickname != d.Nickname
-            || d.Trainer != e.Baseline.Trainer && preview.OriginalTrainerName != d.Trainer;
+        return (newAlphabet || d.Nickname != e.Baseline.Nickname) && d.Nickname.Trim().Length != 0 && preview.Nickname != d.Nickname
+            || (newAlphabet || d.Trainer != e.Baseline.Trainer) && preview.OriginalTrainerName != d.Trainer;
     }
 
     public static string NatureEffect(Nature nature)
@@ -1035,7 +1043,7 @@ public sealed partial class SaveDocument
             && a.Ability == b.Ability && a.AbilityNumber == b.AbilityNumber
             && a.Move1 == b.Move1 && a.Move2 == b.Move2 && a.Move3 == b.Move3 && a.Move4 == b.Move4 && a.CurrentFriendship == b.CurrentFriendship
             && a.EV_HP == b.EV_HP && a.EV_ATK == b.EV_ATK && a.EV_DEF == b.EV_DEF && a.EV_SPE == b.EV_SPE && a.EV_SPA == b.EV_SPA
-            && a.CurrentLevel == b.CurrentLevel && ivsA.SequenceEqual(ivsB);
+            && a.CurrentLevel == b.CurrentLevel && ivsA.SequenceEqual(ivsB) && Draft.From(a).SameMoreData(Draft.From(b));
     }
 
     byte[] BuildZA(SAV9ZA original)

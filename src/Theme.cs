@@ -52,6 +52,8 @@ static class Theme
     public static Color AccentLight => IsDark ? Color.FromArgb(27, 66, 59) : Color.FromArgb(226, 245, 238);
     public static Color Line => IsDark ? Color.FromArgb(62, 70, 80) : Color.FromArgb(220, 228, 235);
     public static Color Danger => IsDark ? Color.FromArgb(244, 124, 130) : Color.FromArgb(185, 52, 58);
+    public static Color MarkingBlue => IsDark ? Color.FromArgb(110, 176, 255) : Color.FromArgb(32, 104, 200);
+    public static Color MarkingPink => IsDark ? Color.FromArgb(255, 140, 190) : Color.FromArgb(205, 50, 120);
 
     public static void Use(bool dark)
     {

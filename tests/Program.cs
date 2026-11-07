@@ -7,6 +7,11 @@ if (args[0] == "--all-games")
     AllGames.Run(args[1]);
     return;
 }
+if (args[0] == "--more-data")
+{
+    AllGames.RunMore(args[1]);
+    return;
+}
 if (args[0] == "--tools")
 {
     AllGames.RunTools(args[1]);

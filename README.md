@@ -67,6 +67,7 @@ Always open the game's **save file**, not an emulator save state (`.ss0`, `.ml1`
 ### Testing status
 
 - **Z-A** has been tested with real saves.
+- The **More data** tab has been tested on real Z-A saves and on generated saves, with every field written and read back in all 38 games. The window itself was tried on Z-A and on generated saves from Gen 1 to Gen 7 and Brilliant Diamond. For Sword, Shield, Legends: Arceus, Scarlet, Violet and Let's Go, whose generated saves only open inside the tests, every row was checked for fit but not used by hand.
 - The other **37 games** have been tested from start to finish with generated saves that use each format's real structure (`tests --all-games`): open, edit, save with a backup, reopen and compare. **They have not been tested with real saves**: before trusting a game, make a copy and check it in the emulator.
 - **Colosseum and XD** could not be tested, because their encrypted GameCube container can't be generated from scratch. PKHeX does the reading and writing, but use them with a copy.
 - In **Diamond, Pearl and Platinum**, the move list leaves out special tutors because of a bug in PKHeX 26.10.18. Moves the Pokémon already knows are kept.
@@ -144,6 +145,40 @@ Names must fit the game's alphabet and length, and the app tells you if they don
 **Legality** shows PKHeX's verdict on the Pokémon as it would be saved, and updates as you edit. It's information only and never stops you from saving.
 
 **Copy Showdown** copies the Pokémon as a Showdown set. **Paste Showdown** applies a copied set to the selected Pokémon, as long as it's the same species: level, nickname, nature, IVs, EVs, ability, shiny status, the moves it can learn in this game, and the held item if it's in your bag. Whatever it can't use is listed at the bottom of the window, and the form doesn't change. As on Showdown, a set with no `Level:` line means level 100.
+
+## More data
+
+Pick a Pokémon and open **More data**. The tab shows only what the open game stores and uses, so most games show part of this list:
+
+| Data | Games |
+| --- | --- |
+| Game of origin, language | Gen 3 onwards |
+| Met location, met level, trainer gender | Crystal and Gen 3 onwards |
+| Met date | Gen 4 onwards |
+| Egg location and date | Gen 4 onwards, on a Pokémon that was an egg. Its met location and date then read as hatch location and date. |
+| PP Ups for each move | Every game except both Legends |
+| Relearn moves | Gen 6 onwards |
+| Hyper Training | Gen 7 onwards |
+| GVs | Legends: Arceus |
+| Contest stats | Gen 3 to 6, Brilliant Diamond and Shining Pearl |
+| Pokérus | Gen 2 onwards, except Let's Go, Scarlet, Violet and Z-A, which don't have it |
+| Tera Type | Scarlet and Violet |
+| Dynamax Level, Gigantamax | Sword and Shield |
+| Height and weight | Let's Go and Gen 8 onwards |
+| Scale | Legends: Arceus, Scarlet, Violet and Z-A |
+| Alpha | Legends: Arceus and Z-A |
+| Markings | Gen 3 onwards. From Gen 7 each one can be blue or pink. |
+| Ribbons | Gen 3 onwards, except Let's Go |
+| Marks | Gen 8 onwards |
+
+- **Pending until saved**: these are ordinary edits. They count as pending changes, **Undo this Pokémon** brings them back, and the save is checked after writing like everything else.
+- **Refused with a reason**: the line under the editor explains what the game can't store, such as February 30, a place that isn't in the game of origin, a ribbon from another game or more Pokérus days than the strain lasts. Save stays off until it's fixed.
+- **Changing the game** updates the list of places. A place the new game doesn't have gives way to its first one, and comes back with the original game.
+- **Changing the language** also changes the name of a Pokémon with no nickname. In Gen 3 the language decides the alphabet, so a name that doesn't fit the new one is refused.
+- **PP Ups** go with the move: a new move starts without them, like in the game.
+- **Eggs** keep this data only once they hatch, so the tab is locked on them.
+
+**Legality** on the **Details** tab follows all of this. Much of it can make a Pokémon illegal without stopping the game from storing it, so check that verdict when you change where a Pokémon comes from.
 
 ## Money and items
 

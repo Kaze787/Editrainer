@@ -223,6 +223,7 @@ public static class SaveTools
         if (a.Form != b.Form || a.FormArgument != b.FormArgument) yield return T("Forma");
         if (a.Ball != b.Ball) yield return T("Poké Ball");
         if (a.Friendship != b.Friendship) yield return Change(T("Amistad"), a.Friendship, b.Friendship);
+        if (!a.SameMoreData(b)) yield return T("Más datos");
     }
 
     /// <summary>Every backup, newest first. Reading never creates the folder, and a damaged backup is still listed.</summary>
