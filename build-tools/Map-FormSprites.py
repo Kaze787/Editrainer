@@ -1,6 +1,6 @@
 # Pairs every form the editor offers with its image name on PokeAPI/sprites.
 #   python Map-FormSprites.py <forms.json from "CoreTests --forms"> <listing.json of the repository>
-# Writes form-sprites.json, which Download-FormSprites.ps1 reads.
+# Writes form-sprites.json, which Download-Images.ps1 reads.
 import csv
 import json
 import re

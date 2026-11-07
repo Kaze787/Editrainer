@@ -7,6 +7,8 @@ obj/
 /*.deps.json
 /*.runtimeconfig.json
 build-tools/release/
+build-tools/package/
+/*.zip
 build-tools/previous-*/
 
 # PKHeX source kept for reference: https://github.com/kwsch/PKHeX
@@ -18,7 +20,7 @@ Backups/
 settings.json
 error.log
 
-# Official sprites and artwork: build-tools/Download-Sprites.ps1 fetches them
+# Official sprites and artwork: Download-Images.bat fetches them
 Assets/artwork/
 Assets/sprites/
 
