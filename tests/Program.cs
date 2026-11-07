@@ -233,14 +233,16 @@ var handlerOutput = Path.Combine(work, "main.handled-friendship-out"); File.Writ
 var handlerResult = SaveDocument.Open(handlerOutput).Pokemon[0].Original;
 Check(handlerResult.HandlingTrainerFriendship == 255 && handlerResult.OriginalTrainerFriendship == 33 && handlerResult.CurrentHandler == 1,
     "Friendship editing changes the current handler's value and preserves the other trainer's value");
-// The trainer and the Pokédex touch their own blocks and nothing else.
+// The trainer and the Pokédex touch their own blocks and nothing else. This save is played on, so what it holds is read from it.
 var toolDoc = SaveDocument.Open(source);
 var card = toolDoc.Trainer.Original; var dex = toolDoc.Pokedex;
 Check(card.Name.Length != 0 && card.Hours + card.Minutes != 0 && toolDoc.Trainer.IsSupported && !toolDoc.Trainer.HasBadges && toolDoc.Trainer.HasGender, "Reads the real trainer, whose game has no badges");
-Check(dex.CanEdit && dex.CanClear && dex.Entries.Count == 364 && dex.SeenCount == 7 && dex.CaughtCount == 7, "Reads the real Pokédex");
+int seenBefore = dex.Entries.Count(toolDoc.Save.GetSeen), caughtBefore = dex.Entries.Count(toolDoc.Save.GetCaught);
+Check(dex.CanEdit && dex.CanClear && dex.Entries.Count != 0 && dex.SeenCount == seenBefore && dex.CaughtCount == caughtBefore, "Reads the real Pokédex");
 Check(SaveDocument.Hash(toolDoc.BuildOutput()) == protectedHash && !toolDoc.HasChanges, "Reading the trainer and the Pokédex keeps the save byte-for-byte");
-const ushort seenOnly = (ushort)Species.Pikachu, newlyCaught = (ushort)Species.Eevee;
-ushort uncaught = dex.Entries.First(s => dex.Get(s).Caught), emptied = dex.Entries.Last(s => dex.Get(s).Caught);
+var unseen = dex.Entries.Where(s => !dex.Get(s).Seen).ToList(); var owned = dex.Entries.Where(s => dex.Get(s).Caught).ToList();
+Check(unseen.Count >= 2 && owned.Count >= 2, "The save has species to mark and to clear");
+ushort seenOnly = unseen[0], newlyCaught = unseen[1], uncaught = owned[0], emptied = owned[^1];
 dex.Set(seenOnly, true, false); dex.Set(newlyCaught, true, true); dex.Set(uncaught, true, false); dex.Set(emptied, false, false);
 toolDoc.Trainer.Edit = card with { Name = "Ana", Gender = (byte)(1 - card.Gender), Tid = 123456, Sid = 789, Hours = card.Hours + 3 };
 var toolPath = Path.Combine(work, "main.tools-test"); File.WriteAllBytes(toolPath, toolDoc.BuildOutput());
@@ -250,11 +252,15 @@ Check(toolSaved.Trainer.Original == toolDoc.Trainer.Edit && realAfter.OT == "Ana
 Check(realAfter.Played.PlayedFractionalSeconds == realBefore.Played.PlayedFractionalSeconds && realAfter.Played.OverworldSeconds == realBefore.Played.OverworldSeconds, "Play time keeps its fraction and leaves the overworld clock alone");
 Check(toolSaved.Pokedex.Get(seenOnly) == new DexState(true, false) && toolSaved.Pokedex.Get(newlyCaught) == new DexState(true, true)
     && toolSaved.Pokedex.Get(uncaught) == new DexState(true, false) && toolSaved.Pokedex.Get(emptied) == new DexState(false, false), "Pokédex edits persist after exporting and reopening");
-Check(toolSaved.Pokedex.SeenCount == 8 && toolSaved.Pokedex.CaughtCount == 6, "No other species changes");
+int seenAfter = dex.Entries.Count(realAfter.GetSeen), caughtAfter = dex.Entries.Count(realAfter.GetCaught);
+Check(seenAfter == seenBefore + 1 && caughtAfter == caughtBefore - 1, "No other species changes");
 var sighted = realAfter.Zukan.GetEntry(seenOnly);
-Check(sighted.GetIsFormSeen(0) && sighted.GetIsGenderSeen(0) && !sighted.GetDisplayIsNew() && !sighted.IsCaught && sighted.DisplayGender == DisplayGender9a.Male, "A seen species looks like a sighting in a played save");
+var sightedInfo = realAfter.Personal[seenOnly];
+var sightedGender = sightedInfo.Genderless ? Gender.Genderless : sightedInfo.OnlyFemale ? Gender.Female : Gender.Male;
+Check(sighted.IsSeen && sighted.GetIsGenderSeen((byte)sightedGender) && !sighted.GetDisplayIsNew() && !sighted.IsCaught
+    && sighted.DisplayGender == sighted.GetDisplayGender(sightedGender, seenOnly, sighted.DisplayForm), "A seen species looks like a sighting in a played save");
 var registered = realAfter.Zukan.GetEntry(newlyCaught);
-Check(registered.GetIsFormCaught(0) && registered.GetLanguageFlag(realAfter.Language) && registered.GetDisplayIsNew(), "A caught species looks like a catch in a played save");
+Check(registered.IsCaught && registered.GetLanguageFlag(realAfter.Language) && registered.GetDisplayIsNew(), "A caught species looks like a catch in a played save");
 var released = realAfter.Zukan.GetEntry(uncaught);
 Check(released.IsSeen && !released.IsCaught && !released.GetLanguageFlag(realAfter.Language) && !released.GetDisplayIsNew(), "Clearing caught keeps what was seen");
 var wiped = realAfter.Zukan.GetEntry(emptied);
@@ -269,7 +275,8 @@ var nothingNew = SaveDocument.Open(source); nothingNew.Trainer.Edit = card with 
 Reject(() => nothingNew.BuildOutput(), "Rejects a trainer name the game can't store");
 var fullDex = SaveDocument.Open(source); fullDex.Pokedex.MarkAll(caught: true);
 var fullPath = Path.Combine(work, "main.full-dex-test"); File.WriteAllBytes(fullPath, fullDex.BuildOutput());
-Check(SaveDocument.Open(fullPath).Pokedex.CaughtCount == 364, "The whole Pokédex can be marked as caught");
+var fullRead = SaveDocument.Open(fullPath).Pokedex;
+Check(fullRead.CaughtCount == fullRead.Entries.Count && fullRead.SeenCount == fullRead.Entries.Count, "The whole Pokédex can be marked as caught");
 // Test the writer only on an isolated copy, never on the user's active save.
 var copy = Path.Combine(work, "main.test"); File.WriteAllBytes(copy, File.ReadAllBytes(source));
 var tempDoc = SaveDocument.Open(copy); tempDoc.Pokemon[0].Edit.IVs[0] = 12;
@@ -277,10 +284,11 @@ var backup = tempDoc.Write(copy, Path.Combine(work, "Backups"), _ => null);
 Check(SaveDocument.Hash(File.ReadAllBytes(Path.Combine(backup, "main.test.original"))) == protectedHash, "Creates exact verified backup before overwriting");
 var actual = SaveDocument.Open(copy);
 Check(actual.Pokemon[0].Original.IV_HP == 12 && actual.DirtyCount == 0, "Atomic write and reopening retain requested edit");
-actual.Trainer.Edit = actual.Trainer.Original with { Name = "Ana" }; actual.Pokedex.Set((ushort)Species.Pikachu, true, true);
+ushort backedUp = actual.Pokedex.Entries.First(s => !actual.Pokedex.Get(s).Caught);
+actual.Trainer.Edit = actual.Trainer.Original with { Name = "Ana" }; actual.Pokedex.Set(backedUp, true, true);
 var toolBackup = actual.Write(copy, Path.Combine(work, "Backups"), _ => null);
 var toolNotes = File.ReadAllText(Path.Combine(toolBackup, "cambios.json"));
-Check(toolNotes.Contains("\"Ana\"") && toolNotes.Contains("\"Species\": 25") && SaveDocument.Open(copy).Save.OT == "Ana", "Writer notes the trainer and the Pokédex in the backup");
+Check(toolNotes.Contains("\"Ana\"") && toolNotes.Contains($"\"Species\": {backedUp}") && SaveDocument.Open(copy).Save.OT == "Ana", "Writer notes the trainer and the Pokédex in the backup");
 actual = SaveDocument.Open(copy);
 actual.Money = 500_000; actual.SetItemCount(1128, 250);
 var resourceBackup = actual.Write(copy, Path.Combine(work, "Backups"), _ => null);
