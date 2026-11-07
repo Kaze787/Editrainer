@@ -500,6 +500,58 @@ static class AllGames
     }
 
     // Changing language halfway must not change one byte of what gets saved.
+    // Level, names and ball written to a real file and read back, plus a verdict and a Showdown round trip.
+    static void Details(GameVersion version, string label, string work)
+    {
+        var sav = TestSaves.Start(version);
+        var rules = new GameRules(sav);
+        var slots = new[] { 0, 1 };
+        foreach (int slot in slots) sav.SetBoxSlotAtIndex(Make(sav, 25, version), slot, EntityImportSettings.None);
+        var path = Path.Combine(work, $"details-{label}".Replace(' ', '-').Replace(':', '-'));
+        File.WriteAllBytes(path, sav.Write().ToArray());
+        var doc = SaveDocument.Open(path);
+        var entry = doc.Pokemon.First(p => !p.IsParty);
+        var other = doc.Pokemon.Last(p => !p.IsParty);
+        Check(label, Catalog.CheckLegality(entry).Report.Length != 0, "da un veredicto de legalidad");
+        string shortName = rules.IsGameBoy ? "ABC" : "Abc";
+        entry.Edit.Level = 42; entry.Edit.Nickname = shortName; entry.Edit.Trainer = "Ana".ToUpperInvariant();
+        var balls = Catalog.GetBalls(entry);
+        Check(label, rules.HasBall == balls.Count > 1, "ofrece Poké Balls solo donde existen", balls.Count.ToString());
+        if (rules.HasBall) entry.Edit.Ball = balls.Last().Id;
+        Check(label, Catalog.Validate(entry) == null, "acepta nivel, apodo y entrenador", Catalog.Validate(entry) ?? "");
+        var preview = entry.Preview();
+        Check(label, preview.ChecksumValid && preview.CurrentLevel == 42 && preview.Stat_Level == 42, "cambia el nivel", preview.CurrentLevel.ToString());
+        Check(label, preview.Stat_HPMax == preview.GetStats(preview.PersonalInfo)[0], "recalcula las estadísticas con el nivel");
+        Check(label, preview.Nickname == shortName && preview.IsNicknamed, "cambia el apodo", preview.Nickname);
+        Check(label, preview.OriginalTrainerName == "ANA", "cambia el entrenador", preview.OriginalTrainerName);
+        var cleared = other.Edit.Nickname; other.Edit.Nickname = shortName; other.Edit.Nickname = "";
+        Check(label, other.Preview().Nickname == cleared && !other.Preview().IsNicknamed, "vaciar el apodo vuelve al nombre de la especie", other.Preview().Nickname);
+        other.Edit.Nickname = new string('A', other.Original.MaxStringLengthNickname + 1);
+        Check(label, Catalog.Validate(other) != null, "rechaza un apodo demasiado largo");
+        other.Edit.Nickname = cleared; other.Edit.Trainer = " ";
+        Check(label, Catalog.Validate(other) != null, "rechaza un entrenador vacío");
+        other.Edit.Trainer = other.Baseline.Trainer;
+        var edited = path + ".out";
+        File.WriteAllBytes(edited, doc.BuildOutput());
+        var read = SaveDocument.Open(edited);
+        var saved = read.Pokemon.First(p => p.Index == entry.Index && !p.IsParty);
+        Check(label, saved.Original.CurrentLevel == 42 && saved.Original.Nickname == shortName && saved.Original.OriginalTrainerName == "ANA", "el nivel y los nombres se guardan");
+        if (rules.HasBall) Check(label, saved.Original.Ball == balls.Last().Id, "la Poké Ball se guarda", saved.Original.Ball.ToString());
+        Check(label, !saved.Dirty, "lo guardado queda sin cambios pendientes");
+
+        var fresh = read.Pokemon.First(p => p.Index == other.Index && !p.IsParty);
+        var message = read.ImportShowdown(fresh, Catalog.ShowdownText(saved));
+        Check(label, message.Length != 0 && fresh.Edit.Level == 42, "pega un set de Showdown", message);
+        Check(label, fresh.Edit.Moves.SequenceEqual(saved.Edit.Moves) && fresh.Edit.Nickname == saved.Edit.Nickname, "pegar conserva movimientos y apodo", fresh.Edit.Nickname);
+        Check(label, Catalog.Validate(fresh) == null, "el set pegado es válido", Catalog.Validate(fresh) ?? "");
+        if (rules.HasNature) Check(label, fresh.Edit.Nature == saved.Edit.Nature, "pegar conserva la naturaleza");
+        if (!rules.IsGameBoy) Check(label, fresh.Edit.IVs.SequenceEqual(saved.Edit.IVs), "pegar conserva los IV", string.Join(' ', fresh.Edit.IVs));
+        bool refused = false;
+        try { read.ImportShowdown(fresh, Catalog.Names.specieslist[1] == "" ? "" : "Bulbasaur\nLevel: 5"); }
+        catch (InvalidOperationException) { refused = true; }
+        Check(label, refused, "rechaza el set de otra especie");
+    }
+
     static void LanguageSwitch(GameVersion version, string label, string work)
     {
         var doc = SaveDocument.Open(Path.Combine(work, version + ".sav"));
@@ -632,7 +684,7 @@ static class AllGames
         foreach (var (game, label) in Games)
         {
             int before = failed;
-            try { Run(game, label, work); FormsOnDisk(game, label, work); StuckForms(game, label); Abilities(game, label, work); AbilityWithForms(game, label); LanguageSwitch(game, label, work); InEveryLanguage(game, label, work); }
+            try { Run(game, label, work); FormsOnDisk(game, label, work); StuckForms(game, label); Abilities(game, label, work); Details(game, label, work); AbilityWithForms(game, label); LanguageSwitch(game, label, work); InEveryLanguage(game, label, work); }
             catch (Exception ex) { failed++; failures.Add($"{label}: {ex.GetType().Name}: {ex.Message.Split('\n')[0]}  {ex.StackTrace?.Split('\n').FirstOrDefault()?.Trim()}"); }
             Console.WriteLine($"{(failed == before ? "ok   " : "FALLA")} {label}");
         }

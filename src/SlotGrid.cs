@@ -95,7 +95,7 @@ sealed class SlotGrid : ScrollableControl
         if (under == hovered) return;
         hovered = under;
         Cursor = under == null ? Cursors.Default : Cursors.Hand;
-        tips.SetToolTip(this, under == null ? "" : $"{under.DisplayName}  ·  {under.SpeciesName}  ·  {T("Nv. {0}", under.Original.CurrentLevel)}  ·  {under.Location}");
+        tips.SetToolTip(this, under == null ? "" : $"{under.DisplayName}  ·  {under.SpeciesName}  ·  {T("Nv. {0}", under.Edit.Level)}  ·  {under.Location}");
     }
 
     protected override bool IsInputKey(Keys keyData) => keyData is Keys.Left or Keys.Right or Keys.Up or Keys.Down || base.IsInputKey(keyData);
@@ -136,7 +136,7 @@ sealed class SlotGrid : ScrollableControl
         if (entry == null) return;
         DrawSprite(g, new Rectangle(place.X + SpriteMargin, place.Y + SpriteMargin, tile - 2 * SpriteMargin, tile - 2 * SpriteMargin), entry);
         if (showsLevel)
-            TextRenderer.DrawText(g, T("Nv. {0}", entry.Original.CurrentLevel), Font, new Rectangle(place.X, place.Y + tile - 1, place.Width, place.Height - tile), Theme.Ink,
+            TextRenderer.DrawText(g, T("Nv. {0}", entry.Edit.Level), Font, new Rectangle(place.X, place.Y + tile - 1, place.Width, place.Height - tile), Theme.Ink,
                 TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
         if (entry.Edit.IsShiny) TextRenderer.DrawText(g, "✦", Font, new Point(place.X + SpriteMargin, place.Y + 1), Theme.Accent, TextFormatFlags.NoPadding);
         if (entry.Dirty)

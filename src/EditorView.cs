@@ -9,8 +9,8 @@ namespace Editrainer;
 /// <summary>Everything inside the window. Texts and colours are set while it is built, so new settings mean a new view.</summary>
 public sealed class EditorView : UserControl
 {
-    const string AppVersion = "2.1";
-    const int SidebarWidth = 340, TeamTitleRow = 2, TeamTitleHeight = 26, TeamGridRow = 3, TeamGridHeight = 72, HeroHeight = 172;
+    const string AppVersion = "2.2";
+    const int SidebarWidth = 340, TeamTitleRow = 2, TeamTitleHeight = 26, TeamGridRow = 3, TeamGridHeight = 72, HeroHeight = 172, BagTab = 2, DetailsTab = 3;
 
     /// <summary>What the view that replaces this one needs to carry on where it left off.</summary>
     public sealed record Snapshot(SaveDocument? Document, PokemonEntry? Entry, int Box, string Search, int Tab);
@@ -58,6 +58,16 @@ public sealed class EditorView : UserControl
     readonly TabControl tabs = new() { Dock = DockStyle.Fill, Font = Theme.Font(10), Padding = new Point(18, 7) };
     readonly Panel editor = new() { Dock = DockStyle.Fill };
     readonly ToolTip tips = new() { AutoPopDelay = 12000, InitialDelay = 350 };
+    readonly TextBox nicknameBox = DetailBox(), trainerNameBox = DetailBox();
+    readonly NumericUpDown levelBox = Number(Experience.MaxLevel);
+    readonly ComboBox ballPicker = Theme.Combo();
+    readonly Label ballLabel = FieldLabel(T("Poké Ball"));
+    readonly Label legalityVerdict = Theme.Label("", 11, true);
+    readonly TextBox legalityReport = new() {
+        Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, Dock = DockStyle.Fill, Font = Theme.Font(9),
+        BackColor = Theme.Surface, ForeColor = Theme.Ink, BorderStyle = BorderStyle.None, Margin = new Padding(3, 0, 3, 6),
+    };
+    readonly ContextMenuStrip toolsMenu = new();
     readonly ResourcesPanel resources = new();
     readonly EquipmentPanel equipment = new();
     TableLayoutPanel? detailsLayout, heroPanel;
@@ -91,6 +101,12 @@ public sealed class EditorView : UserControl
         return button;
     }
     static FlowLayoutPanel Flow() => new() { Dock = DockStyle.Fill, WrapContents = false, Margin = Padding.Empty, Padding = Padding.Empty };
+    static TextBox DetailBox() => new() { Dock = DockStyle.Fill, Font = Theme.Font(10), BorderStyle = BorderStyle.FixedSingle, Margin = new Padding(4, 6, 4, 4) };
+    static Label FieldLabel(string text)
+    {
+        var label = Theme.Label(text, 10, true); label.AutoSize = true; label.Margin = new Padding(3, 10, 12, 10);
+        return label;
+    }
 
     void BuildLayout()
     {
@@ -98,7 +114,7 @@ public sealed class EditorView : UserControl
         root.RowStyles.Add(new(SizeType.Absolute, 58)); root.RowStyles.Add(new(SizeType.Absolute, 32));
         root.RowStyles.Add(new(SizeType.Percent, 100)); root.RowStyles.Add(new(SizeType.Absolute, 78));
         Controls.Add(root);
-        var header = Table(3, 1); header.ColumnStyles.Add(new(SizeType.Absolute, 54)); header.ColumnStyles.Add(new(SizeType.Percent, 100)); header.ColumnStyles.Add(new(SizeType.Absolute, 370));
+        var header = Table(3, 1); header.ColumnStyles.Add(new(SizeType.Absolute, 54)); header.ColumnStyles.Add(new(SizeType.Percent, 100)); header.ColumnStyles.Add(new(SizeType.Absolute, 500));
         settingsButton.Size = new Size(44, 44); settingsButton.Anchor = AnchorStyles.Top | AnchorStyles.Left; settingsButton.Margin = new Padding(0, 7, 10, 0);
         settingsButton.AccessibleName = T("Configuración");
         settingsButton.Click += (_, _) => SettingsRequested?.Invoke(); tips.SetToolTip(settingsButton, T("Configuración"));
@@ -111,6 +127,12 @@ public sealed class EditorView : UserControl
         var open = Theme.Button(T("Abrir partida…")); open.Click += (_, _) => OpenDialog();
         var find = Theme.Button(T("Buscar partidas")); find.Click += async (_, _) => await FindSaves();
         fileActions.Controls.Add(open); fileActions.Controls.Add(find);
+        BuildTools();
+        if (toolsMenu.Items.Count != 0)
+        {
+            var toolsButton = Theme.Button(T("Herramientas")); toolsButton.Click += (_, _) => toolsMenu.Show(toolsButton, new Point(0, toolsButton.Height));
+            fileActions.Controls.Add(toolsButton);
+        }
         header.Controls.Add(fileActions, 2, 0); root.Controls.Add(header, 0, 0);
         trainer.AutoEllipsis = true; root.Controls.Add(trainer, 0, 1);
 
@@ -149,6 +171,7 @@ public sealed class EditorView : UserControl
         hero.Controls.Add(identity, 1, 0); right.Controls.Add(hero, 0, 0);
         BuildStatsTab(); BuildMovesTab();
         var bagPage = new TabPage(T("Dinero y objetos")) { BackColor = Theme.Surface }; bagPage.Controls.Add(resources); tabs.TabPages.Add(bagPage);
+        BuildDetailsTab();
         editor.Controls.Add(tabs); editor.Padding = new Padding(16, 6, 16, 0);
         right.Controls.Add(editor, 0, 1); validation.Padding = new Padding(16, 0, 12, 0); validation.AutoEllipsis = true;
         right.Controls.Add(validation, 0, 2); body.Controls.Add(right, 1, 0); root.Controls.Add(body, 0, 2);
@@ -178,6 +201,13 @@ public sealed class EditorView : UserControl
         tips.SetToolTip(save, T("Guarda en el archivo abierto y crea un respaldo completo de la partida anterior."));
         tips.SetToolTip(optimizeAll, T("IV de 31, naturaleza Firme o Modesta y EV según la evolución final. Revisa los cambios antes de guardar."));
     }
+
+    // Each tool that works on the whole save adds its entry here.
+    void BuildTools()
+    {
+    }
+
+    void AddTool(string text, Action run) => toolsMenu.Items.Add(text, null, (_, _) => { if (document != null) run(); });
 
     void BuildStatsTab()
     {
@@ -265,20 +295,75 @@ public sealed class EditorView : UserControl
         help.MinimumSize = new Size(0, 60); help.Margin = new Padding(3, 12, 3, 3); layout.Controls.Add(help, 0, 2);
     }
 
+    void BuildDetailsTab()
+    {
+        var page = new TabPage(T("Detalles")) { BackColor = Theme.Surface, Padding = new Padding(12, 8, 12, 6) };
+        tabs.TabPages.Add(page);
+        var layout = Table(2, 2);
+        layout.ColumnStyles.Add(new(SizeType.Absolute, 380)); layout.ColumnStyles.Add(new(SizeType.Percent, 100));
+        layout.RowStyles.Add(new(SizeType.Percent, 100)); layout.RowStyles.Add(new(SizeType.AutoSize));
+        page.Controls.Add(layout);
+        var fields = Table(2, 5); fields.ColumnStyles.Add(new(SizeType.AutoSize)); fields.ColumnStyles.Add(new(SizeType.Percent, 100));
+        for (int i = 0; i < 4; i++) fields.RowStyles.Add(new(SizeType.AutoSize));
+        fields.RowStyles.Add(new(SizeType.Percent, 100));
+        fields.Controls.Add(FieldLabel(T("Apodo")), 0, 0); fields.Controls.Add(nicknameBox, 1, 0);
+        fields.Controls.Add(FieldLabel(T("Entrenador original")), 0, 1); fields.Controls.Add(trainerNameBox, 1, 1);
+        fields.Controls.Add(FieldLabel(T("Nivel")), 0, 2); fields.Controls.Add(levelBox, 1, 2);
+        levelBox.Minimum = 1; levelBox.Margin = new Padding(4, 6, 4, 4);
+        fields.Controls.Add(ballLabel, 0, 3); fields.Controls.Add(ballPicker, 1, 3);
+        layout.Controls.Add(fields, 0, 0);
+        var legality = Table(1, 3); legality.Margin = new Padding(16, 0, 0, 0);
+        legality.RowStyles.Add(new(SizeType.AutoSize)); legality.RowStyles.Add(new(SizeType.Absolute, 34)); legality.RowStyles.Add(new(SizeType.Percent, 100));
+        var legalityTitle = Theme.Label(T("Legalidad"), 9, true, Theme.Muted); legalityTitle.AutoSize = true; legalityTitle.Margin = new Padding(3, 8, 3, 2);
+        legality.Controls.Add(legalityTitle, 0, 0); legality.Controls.Add(legalityVerdict, 0, 1); legality.Controls.Add(legalityReport, 0, 2);
+        layout.Controls.Add(legality, 1, 0);
+        var showdown = Flow(); showdown.AutoSize = true; showdown.Dock = DockStyle.Top;
+        var copySet = Theme.Button(T("Copiar Showdown")); var pasteSet = Theme.Button(T("Pegar Showdown"));
+        copySet.Click += (_, _) => {
+            if (current == null) return;
+            Clipboard.SetText(Catalog.ShowdownText(current)); Notify(T("Set copiado al portapapeles."));
+        };
+        pasteSet.Click += (_, _) => { if (current != null && Clipboard.ContainsText()) PasteShowdown(Clipboard.GetText()); };
+        showdown.Controls.Add(copySet); showdown.Controls.Add(pasteSet);
+        layout.Controls.Add(showdown, 0, 1); layout.SetColumnSpan(showdown, 2);
+        tips.SetToolTip(nicknameBox, T("Déjalo vacío para volver al nombre de la especie."));
+        tips.SetToolTip(pasteSet, T("Aplica a este Pokémon el set copiado. Lo que no pueda usar se indica abajo."));
+    }
+
+    void PasteShowdown(string text)
+    {
+        try
+        {
+            var message = document!.ImportShowdown(current!, text);
+            BindEntry(current!, true); resources.RefreshDraft(); Notify(message);
+        }
+        catch (InvalidOperationException ex) { Notify(ex.Message); }
+    }
+
+    void ShowLegality()
+    {
+        if (current == null || tabs.SelectedIndex != DetailsTab) return;
+        var result = Catalog.CheckLegality(current);
+        legalityVerdict.Text = result.Valid ? T("✔ Legal") : T("✖ No legal");
+        legalityVerdict.ForeColor = result.Valid ? Theme.Accent : Theme.Danger;
+        legalityReport.Text = result.Report.ReplaceLineEndings("\r\n");
+    }
+
     void WireEvents()
     {
         resources.DraftChanged += (_, _) => UpdateState(); resources.StatusMessage += Notify;
         equipment.DraftChanged += (_, _) => UpdateState(); equipment.StatusMessage += Notify;
         equipment.BagChanged += (_, _) => resources.RefreshDraft();
-        equipment.BagRequested += id => { resources.ShowItem(id); tabs.SelectedIndex = 2; };
+        equipment.BagRequested += id => { resources.ShowItem(id); tabs.SelectedIndex = BagTab; };
         tabs.SelectedIndexChanged += (_, _) => {
-            bool showBag = tabs.SelectedIndex == 2;
+            bool showBag = tabs.SelectedIndex == BagTab;
             if (detailsLayout != null && heroPanel != null) {
                 detailsLayout.SuspendLayout(); heroPanel.Visible = !showBag;
                 detailsLayout.RowStyles[0].Height = showBag ? 0 : HeroHeight; detailsLayout.ResumeLayout();
             }
             optimizeAll.Visible = !showBag;
             if (tabs.SelectedIndex == 0 && document != null && current != null) equipment.Bind(document, current, true);
+            ShowLegality();
         };
         search.TextChanged += (_, _) => RefreshList();
         teamGrid.Picked += Pick; boxGrid.Picked += Pick;
@@ -291,6 +376,12 @@ public sealed class EditorView : UserControl
         abilityPicker.SelectedIndexChanged += (_, _) => {
             if (binding || current == null || abilityPicker.SelectedItem is not AbilityChoice choice) return;
             Catalog.SetAbility(current, choice); UpdateState();
+        };
+        nicknameBox.TextChanged += (_, _) => { if (!binding && current != null) { current.Edit.Nickname = nicknameBox.Text; UpdateState(); } };
+        trainerNameBox.TextChanged += (_, _) => { if (!binding && current != null) { current.Edit.Trainer = trainerNameBox.Text; UpdateState(); } };
+        levelBox.ValueChanged += (_, _) => { if (!binding && current != null) { current.Edit.Level = (int)levelBox.Value; UpdateState(); } };
+        ballPicker.SelectedIndexChanged += (_, _) => {
+            if (!binding && current != null && ballPicker.SelectedItem is Choice ball) { current.Edit.Ball = ball.Id; UpdateState(); }
         };
         target.SelectedIndexChanged += (_, _) => UpdateBuildHint();
         formPicker.SelectedIndexChanged += (_, _) => {
@@ -345,7 +436,13 @@ public sealed class EditorView : UserControl
         current = e;
         Catalog.SyncForm(e);
         heroName.Text = e.DisplayName + (e.Edit.IsShiny ? " ✦" : "");
-        heroSpecies.Text = T("{0}  ·  Nivel {1}  ·  {2}", e.SpeciesName, e.Original.CurrentLevel, e.Location);
+        bool hatched = !e.Original.IsEgg;
+        nicknameBox.MaxLength = e.Original.MaxStringLengthNickname; trainerNameBox.MaxLength = e.Original.MaxStringLengthTrainer;
+        nicknameBox.Text = e.Edit.Nickname; trainerNameBox.Text = e.Edit.Trainer; levelBox.Value = Math.Clamp(e.Edit.Level, 1, Experience.MaxLevel);
+        var balls = Catalog.GetBalls(e);
+        ballPicker.Items.Clear(); ballPicker.Items.AddRange(balls.Cast<object>().ToArray());
+        ballPicker.SelectedItem = balls.FirstOrDefault(b => b.Id == e.Edit.Ball);
+        nicknameBox.Enabled = trainerNameBox.Enabled = levelBox.Enabled = ballPicker.Enabled = hatched;
         var pi = e.Preview().PersonalInfo;
         var forms = Catalog.GetForms(e);
         formPicker.Items.Clear(); formPicker.Items.AddRange(forms.Cast<object>().ToArray());
@@ -401,7 +498,7 @@ public sealed class EditorView : UserControl
     {
         bool loaded = document != null;
         shiny.Enabled = loaded && current != null;
-        editor.Enabled = loaded; tabs.TabPages[0].Enabled = tabs.TabPages[1].Enabled = loaded && current != null;
+        editor.Enabled = loaded; tabs.TabPages[0].Enabled = tabs.TabPages[1].Enabled = tabs.TabPages[DetailsTab].Enabled = loaded && current != null;
         equipment.Enabled = loaded && current != null;
         restoreSelected.Enabled = current?.Dirty == true;
         optimizeAll.Enabled = loaded && document!.Pokemon.Count != 0;
@@ -414,6 +511,7 @@ public sealed class EditorView : UserControl
         {
             Catalog.SyncForm(current); ShowForm(current);
             heroName.Text = current.DisplayName + (current.Edit.IsShiny ? " ✦" : "");
+            heroSpecies.Text = T("{0}  ·  Nivel {1}  ·  {2}", current.SpeciesName, current.Edit.Level, current.Location);
             portrait.Image = sprites.Get(current.Original.Species, current.ImageVariant, true, current.Edit.IsShiny);
             natureEffect.Text = current.Rules.HasNature ? Catalog.NatureEffect(current.Edit.Nature) : T("Este juego no tiene naturalezas.");
             var preview = current.Preview();
@@ -423,6 +521,7 @@ public sealed class EditorView : UserControl
             evTotal.Text = limit == 0 ? T("{0}: sin límite total", current.Rules.EVName) : T("EV: {0} / {1}  ·  Quedan {2}", total, limit, Math.Max(0, limit - total));
             evTotal.ForeColor = limit != 0 && total > limit ? Theme.Danger : Theme.Accent;
         }
+        if (error == null) ShowLegality();
         Text = AppTitle + (loaded && document!.HasChanges ? T(" · {0} cambios pendientes", document.DirtyCount + document.ResourceChangeCount) : "");
         teamGrid.Invalidate(); boxGrid.Invalidate();
     }
@@ -521,6 +620,7 @@ public sealed class EditorView : UserControl
         }
         nature.Enabled = rules.HasNature; shiny.Visible = rules.HasShiny; equipment.Visible = rules.HasHeldItems;
         abilityLabel.Visible = abilityPicker.Visible = abilityNote.Visible = rules.HasAbility;
+        ballLabel.Visible = ballPicker.Visible = rules.HasBall;
         bool hasTeam = rules.Save.HasParty;
         teamTitle.Visible = teamGrid.Visible = hasTeam;
         sidebar.RowStyles[TeamTitleRow].Height = hasTeam ? TeamTitleHeight : 0;
@@ -540,7 +640,7 @@ public sealed class EditorView : UserControl
         else Notify(T("Búsqueda cancelada."));
     }
 
-    internal void OpenResources() => tabs.SelectedIndex = 2;
+    internal void OpenResources() => tabs.SelectedIndex = BagTab;
     internal void OpenEquipment() => tabs.SelectedIndex = 0;
 
     void OpenDialog()
@@ -699,7 +799,28 @@ public sealed class EditorView : UserControl
         Check(((AbilityChoice)abilityPicker.SelectedItem!).Ability == chosenAbility.Ability, "The chosen ability persists when switching Pokémon");
         restoreSelected.PerformClick();
         Check(((AbilityChoice)abilityPicker.SelectedItem!).Ability == startingAbility.Ability && document.DirtyCount == 0, "Undo restores the original ability");
-        tabs.SelectedIndex = 2; resources.RunInteractionChecks(Check);
+        Choose(4); tabs.SelectedIndex = DetailsTab;
+        int startingLevel = current!.Edit.Level;
+        levelBox.Value = startingLevel == 50 ? 51 : 50;
+        Check(current.Preview().CurrentLevel == (int)levelBox.Value && heroSpecies.Text.Contains(levelBox.Value.ToString()) && save.Enabled, "Changing the level stages it and updates the header");
+        nicknameBox.Text = "Lanita";
+        Check(current.Preview().Nickname == "Lanita" && heroName.Text == "Lanita", "Changing the nickname stages it and updates the header");
+        trainerNameBox.Text = "";
+        Check(!save.Enabled && validation.Text.Length != 0, "An empty trainer name disables Save and explains why");
+        trainerNameBox.Text = "Ana";
+        Check(current.Preview().OriginalTrainerName == "Ana" && save.Enabled, "Changing the trainer name stages it");
+        var otherBall = ballPicker.Items.Cast<Choice>().First(b => b.Id != current.Edit.Ball);
+        ballPicker.SelectedItem = otherBall;
+        Check(current.Preview().Ball == otherBall.Id, "Choosing a Poké Ball stages it");
+        Check(legalityVerdict.Text.Length != 0 && legalityReport.Text.Length != 0, "The details tab shows a legality report");
+        restoreSelected.PerformClick();
+        Check(document.DirtyCount == 0 && (int)levelBox.Value == startingLevel && nicknameBox.Text == current.Edit.Nickname, "Undo restores the details");
+        string copied = Catalog.ShowdownText(current);
+        PasteShowdown(copied);
+        Check(document.DirtyCount == 0, "Pasting a Pokémon's own set changes nothing");
+        PasteShowdown("Pikachu\nLevel: 5");
+        Check(status.Text.Contains("Pikachu") && document.DirtyCount == 0, "A set for another species is refused");
+        tabs.SelectedIndex = BagTab; resources.RunInteractionChecks(Check);
         Check(!save.Enabled && !document.HasChanges && heroPanel?.Visible == false, "Resource undo clears global pending changes and the bag tab hides the Pokémon header");
         Choose(4); tabs.SelectedIndex = 0; equipment.RunInteractionChecks(Check); resources.RefreshDraft(); UpdateState();
         Check(!document.HasChanges && !save.Enabled, "Equipment and friendship test edits can be completely undone");

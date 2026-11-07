@@ -30,6 +30,9 @@ public sealed record BagItem(ushort Id, string Name, InventoryType Pouch, string
     public bool IsExperience => Category == GameRules.ExperienceCategory;
 }
 
+/// <summary>PKHeX's verdict on a Pokémon as it would be saved.</summary>
+public sealed record LegalityCheck(bool Valid, string Report);
+
 public sealed class Draft
 {
     public int[] IVs { get; set; } = new int[6];
@@ -43,11 +46,16 @@ public sealed class Draft
     public uint FormArgument { get; set; }
     public int Ability { get; set; }
     public int AbilitySlot { get; set; }
+    public int Level { get; set; }
+    public string Nickname { get; set; } = "";
+    public string Trainer { get; set; } = "";
+    public int Ball { get; set; }
     public static Draft From(PKM p)
     {
         var d = new Draft { Nature = p.StatAlignment, IsShiny = p.IsShiny, HeldItem = p.HeldItem, Friendship = p.CurrentFriendship,
             Form = p.Form, FormArgument = (p as IFormArgument)?.FormArgument ?? 0,
-            Ability = p.Ability, AbilitySlot = Math.Clamp(p.AbilityNumber >> 1, 0, 2) };
+            Ability = p.Ability, AbilitySlot = Math.Clamp(p.AbilityNumber >> 1, 0, 2),
+            Level = p.CurrentLevel, Nickname = p.Nickname, Trainer = p.OriginalTrainerName, Ball = p.Ball };
         p.GetIVs(d.IVs); p.GetMoves(d.Moves);
         if (p is IAwakened a) d.EVs = [a.AV_HP, a.AV_ATK, a.AV_DEF, a.AV_SPE, a.AV_SPA, a.AV_SPD];
         else p.GetEVs(d.EVs);
@@ -55,7 +63,8 @@ public sealed class Draft
     }
     public bool SameAs(Draft other) => Nature == other.Nature && IsShiny == other.IsShiny
         && HeldItem == other.HeldItem && Friendship == other.Friendship && Form == other.Form
-        && FormArgument == other.FormArgument && Ability == other.Ability && AbilitySlot == other.AbilitySlot && IVs.SequenceEqual(other.IVs)
+        && FormArgument == other.FormArgument && Ability == other.Ability && AbilitySlot == other.AbilitySlot
+        && Level == other.Level && Nickname == other.Nickname && Trainer == other.Trainer && Ball == other.Ball && IVs.SequenceEqual(other.IVs)
         && EVs.SequenceEqual(other.EVs) && Moves.SequenceEqual(other.Moves);
 }
 
@@ -96,6 +105,7 @@ public sealed class GameRules
     public bool HasFormInPid => Generation == 3;
     public bool HasStoredForm => Generation >= 4;
     public bool HasAbility => Generation >= 3;
+    public bool HasBall => Generation >= 3;
     // Let's Go and both Legends keep the ability in each Pokémon, but battles ignore it.
     public bool UsesAbility => HasAbility && Context is not (EntityContext.Gen7b or EntityContext.Gen8a or EntityContext.Gen9a);
     public int MaxIV => IsGameBoy ? 15 : 31;
@@ -246,7 +256,7 @@ public sealed class PokemonEntry(GameRules rules, bool party, int index, PKM pok
     public bool Dirty => !Edit.SameAs(Baseline);
     public string SpeciesName => Catalog.Names.specieslist[Original.Species];
     public string Location => IsParty ? T("Equipo · {0}", Index + 1) : T("Caja {0} · {1}", Index / Rules.Save.BoxSlotCount + 1, Index % Rules.Save.BoxSlotCount + 1);
-    public string DisplayName => string.IsNullOrWhiteSpace(Original.Nickname) ? SpeciesName : Original.Nickname;
+    public string DisplayName => string.IsNullOrWhiteSpace(Edit.Nickname) ? SpeciesName : Edit.Nickname;
     public string ImageVariant => Catalog.ImageVariant(Rules, Original.Species, Edit.Form, Edit.FormArgument);
     public override string ToString() => $"{DisplayName} {SpeciesName} {Location}";
     public PKM Preview() => Catalog.Apply(this);
@@ -259,13 +269,31 @@ public static class Catalog
     public static string[] Stats => [T("PS"), T("Ataque"), T("Defensa"), T("Velocidad"), T("At. Especial"), T("Def. Especial")];
     static readonly string[] Genders = ["♂", "♀", "-"];
     static string[] AbilitySlots => [T("principal"), T("secundaria"), T("oculta")];
+    static GameDataSource? sources;
     static string[] AlcremieCreams => [T("Crema de Vainilla"), T("Crema Rosa"), T("Crema de Té"), T("Crema de Menta"), T("Crema de Limón"), T("Crema Salada"), T("Mezcla Rosa"), T("Mezcla Caramelo"), T("Mezcla Tres Sabores")];
     static string[] AlcremieSweets => [T("Fresa"), T("Baya"), T("Corazón"), T("Estrella"), T("Trébol"), T("Flor"), T("Lazo")];
     public static void UseLanguage(string code)
     {
         Strings.Use(code);
         Names = GameInfo.GetStrings(Strings.Current.GameData);
+        sources = null;
     }
+
+    public static List<Choice> GetBalls(PokemonEntry e)
+    {
+        sources ??= new GameDataSource(Names);
+        var balls = sources.BallDataSource.Where(b => b.Value > 0 && b.Value <= e.Rules.Save.MaxBallID).Select(b => new Choice(b.Value, b.Text)).ToList();
+        if (balls.All(b => b.Id != e.Baseline.Ball)) balls.Insert(0, new Choice(e.Baseline.Ball, T("{0} (actual)", e.Baseline.Ball)));
+        return balls;
+    }
+
+    public static LegalityCheck CheckLegality(PokemonEntry e)
+    {
+        var analysis = new LegalityAnalysis(e.Preview(), e.Rules.Personal, e.IsParty ? StorageSlotType.Party : StorageSlotType.Box);
+        return new(analysis.Valid, analysis.Report(Strings.Current.GameData));
+    }
+
+    public static string ShowdownText(PokemonEntry e) => new ShowdownSet(e.Preview()).Text;
 
     public static IEnumerable<int> SpeciesIds => Enumerable.Range(1, PersonalTable.ZA.MaxSpeciesID)
         .Where(i => PersonalTable.ZA[(ushort)i, 0].IsPresentInGame);
@@ -452,13 +480,17 @@ public static class Catalog
         bool formChanged = d.Form != entry.Baseline.Form || d.FormArgument != entry.Baseline.FormArgument;
         bool abilityChanged = d.Ability != entry.Baseline.Ability || d.AbilitySlot != entry.Baseline.AbilitySlot;
         bool statsChanged = formChanged || !ivs.SequenceEqual(entry.Baseline.IVs) || !evs.SequenceEqual(entry.Baseline.EVs)
-            || d.Nature != entry.Baseline.Nature;
+            || d.Nature != entry.Baseline.Nature || d.Level != entry.Baseline.Level;
         p.SetIVs(ivs);
         if (p is IAwakened a) SetAwakening(a, evs); else p.SetEVs(evs);
         if (formChanged && rules.HasStoredForm) ChangeForm(p, d);
         if (abilityChanged) p.RefreshAbility(d.AbilitySlot);
         if (rules.HasHeldItems && d.HeldItem != entry.Baseline.HeldItem) p.HeldItem = d.HeldItem;
         if (rules.HasFriendship && d.Friendship != entry.Baseline.Friendship) p.CurrentFriendship = (byte)d.Friendship;
+        if (d.Level != entry.Baseline.Level) p.CurrentLevel = (byte)d.Level;
+        if (d.Nickname != entry.Baseline.Nickname) p.SetNickname(d.Nickname.Trim().Length == 0 ? "" : d.Nickname);
+        if (d.Trainer != entry.Baseline.Trainer) p.OriginalTrainerName = d.Trainer;
+        if (rules.HasBall && d.Ball != entry.Baseline.Ball) p.Ball = (byte)d.Ball;
         if (rules.HasNature && !rules.HasPidNature && d.Nature != entry.Baseline.Nature) p.Nature = p.StatAlignment = d.Nature;
         for (int i = 0; i < 4; i++)
         {
@@ -552,7 +584,20 @@ public static class Catalog
         if (set.Count != set.Distinct().Count()) return T("No se puede repetir un movimiento.");
         var allowed = GetMoves(e).Select(m => (ushort)m.Id).ToHashSet();
         if (d.Moves.Any(m => !allowed.Contains(m))) return T("Hay un movimiento incompatible con este Pokémon.");
-        return null;
+        if (d.Level != e.Baseline.Level && d.Level is < 1 or > Experience.MaxLevel) return T("El nivel debe estar entre 1 y {0}.", Experience.MaxLevel);
+        if (d.Trainer != e.Baseline.Trainer && d.Trainer.Trim().Length == 0) return T("El nombre del entrenador no puede quedar vacío.");
+        if (d.Ball != e.Baseline.Ball && GetBalls(e).All(b => b.Id != d.Ball)) return T("Esa Poké Ball no existe en este juego.");
+        return LosesText(e) ? T("Ese nombre tiene caracteres que este juego no admite.") : null;
+    }
+
+    // Each game has its own alphabet and lengths, and whatever it can't store just disappears.
+    static bool LosesText(PokemonEntry e)
+    {
+        var d = e.Edit;
+        if (d.Nickname == e.Baseline.Nickname && d.Trainer == e.Baseline.Trainer) return false;
+        var preview = e.Preview();
+        return d.Nickname != e.Baseline.Nickname && d.Nickname.Trim().Length != 0 && preview.Nickname != d.Nickname
+            || d.Trainer != e.Baseline.Trainer && preview.OriginalTrainerName != d.Trainer;
     }
 
     public static string NatureEffect(Nature nature)
@@ -656,8 +701,17 @@ public sealed class SaveDocument
         if (save is SAV9ZA && entries.Any(e => !e.Original.ChecksumValid)) throw new InvalidOperationException(T("La partida contiene un Pokémon con datos dañados."));
         entries = entries.Where(e => e.Original.ChecksumValid).ToList();   // older games can hold "bad eggs": leave those alone
         var items = save is SAV9ZA za ? ReadBagZA(za, rules) : ReadBag(save, rules);
-        return new() { FilePath = Path.GetFullPath(path), OriginalBytes = bytes, OriginalHash = Hash(bytes), Save = save, Rules = rules,
+        var document = new SaveDocument { FilePath = Path.GetFullPath(path), OriginalBytes = bytes, OriginalHash = Hash(bytes), Save = save, Rules = rules,
             Pokemon = entries, Money = save.Money, Items = items.OrderBy(x => x.Name, StringComparer.CurrentCultureIgnoreCase).ToList() };
+        document.Activate();
+        return document;
+    }
+
+    // The legality rules and the Showdown text ask PKHeX which save is open.
+    void Activate()
+    {
+        ParseSettings.InitFromSaveFileData(Save);
+        RecentTrainerCache.SetRecentTrainer(Save);
     }
 
     static List<BagItem> ReadBagZA(SAV9ZA save, GameRules rules)
@@ -751,6 +805,42 @@ public sealed class SaveDocument
             return needed == 0 ? $"{ready} {ex.Message}" : $"{ready} {T("El juego la conserva solo si lleva {0}.", Rules.ItemName(needed))} {ex.Message}";
         }
         return needed == 0 ? ready : T("Forma {0} lista con {1} equipado. Guarda para aplicarla.", choice.Label, Rules.ItemName(needed));
+    }
+
+    /// <summary>Takes from a Showdown set what this Pokémon can use, and returns what happened.</summary>
+    public string ImportShowdown(PokemonEntry entry, string text)
+    {
+        var set = new ShowdownSet(text.AsSpan());
+        if (set.Species == 0) throw new InvalidOperationException(T("El portapapeles no tiene un set de Showdown."));
+        if (set.Species != entry.Original.Species)
+            throw new InvalidOperationException(T("Ese set es de {0}, no de {1}.", Catalog.Names.specieslist[set.Species], entry.SpeciesName));
+        var d = entry.Edit;
+        var left = new List<string>();
+        d.Level = set.Level;
+        if (set.Nickname.Length != 0) d.Nickname = set.Nickname;
+        if (Rules.HasNature && set.Nature != Nature.Random) d.Nature = set.Nature;
+        d.IVs = set.IVs.Select(v => Math.Min(v, Rules.MaxIV)).ToArray();
+        if (!Rules.HasAwakening) d.EVs = set.EVs.Select(v => Math.Min(v, Rules.MaxEV)).ToArray();
+        if (Rules.IsGameBoy) GameRules.KeepDVLooks(d, entry.Original.Species);
+        if (Rules.HasShiny) Catalog.SetShiny(entry, set.Shiny);
+        if (Rules.HasAbility && set.Ability >= 0)
+        {
+            if (Catalog.GetAbilities(entry).FirstOrDefault(c => c.Ability == set.Ability) is { } ability) Catalog.SetAbility(entry, ability);
+            else left.Add(Catalog.Names.abilitylist[set.Ability]);
+        }
+        var allowed = Catalog.GetMoves(entry).Select(m => (ushort)m.Id).ToHashSet();
+        var moves = set.Moves.Where(m => m != 0).ToList();
+        left.AddRange(moves.Where(m => !allowed.Contains(m)).Select(m => Catalog.Names.movelist[m]));
+        var usable = moves.Where(allowed.Contains).Distinct().Take(d.Moves.Length).ToList();
+        if (usable.Count != 0) d.Moves = usable.Concat(Enumerable.Repeat((ushort)0, d.Moves.Length - usable.Count)).ToArray();
+        if (Rules.HasHeldItems && set.HeldItem != 0)
+        {
+            try { EquipItem(entry, set.HeldItem); }
+            catch (InvalidOperationException) { left.Add(Rules.ItemName(set.HeldItem)); }
+        }
+        if (Rules.HasStoredForm && set.Form != d.Form) left.Add(T("Forma"));
+        return left.Count == 0 ? T("Set aplicado a {0}. Revísalo antes de guardar.", entry.DisplayName)
+            : T("Set aplicado a {0}. No se aplicó: {1}.", entry.DisplayName, string.Join(", ", left));
     }
 
     public void ResetPokemon(PokemonEntry entry)
@@ -905,6 +995,7 @@ public sealed class SaveDocument
         Span<int> ivsA = stackalloc int[6], ivsB = stackalloc int[6];
         a.GetIVs(ivsA); b.GetIVs(ivsB);
         return a.Species == b.Species && a.PID == b.PID && a.Form == b.Form && a.HeldItem == b.HeldItem && a.Nickname == b.Nickname
+            && a.IsNicknamed == b.IsNicknamed && a.OriginalTrainerName == b.OriginalTrainerName && a.Ball == b.Ball
             && a.Ability == b.Ability && a.AbilityNumber == b.AbilityNumber
             && a.Move1 == b.Move1 && a.Move2 == b.Move2 && a.Move3 == b.Move3 && a.Move4 == b.Move4 && a.CurrentFriendship == b.CurrentFriendship
             && a.EV_HP == b.EV_HP && a.EV_ATK == b.EV_ATK && a.EV_DEF == b.EV_DEF && a.EV_SPE == b.EV_SPE && a.EV_SPA == b.EV_SPA
