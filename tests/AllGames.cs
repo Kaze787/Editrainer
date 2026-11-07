@@ -505,9 +505,8 @@ static class AllGames
     {
         var sav = TestSaves.Start(version);
         var rules = new GameRules(sav);
-        var slots = new[] { 0, 1 };
-        foreach (int slot in slots) sav.SetBoxSlotAtIndex(Make(sav, 25, version), slot, EntityImportSettings.None);
-        if (rules.IsGameBoy) sav.SetPartySlotAtIndex(Make(sav, 25, version), 0, EntityImportSettings.None);   // an empty party doesn't read as a save
+        if (sav is not SAV7b) sav.SetPartySlotAtIndex(Make(sav, 133, version), 0, EntityImportSettings.None);   // Game Boy saves need a valid team list
+        foreach (int slot in new[] { 0, 1 }) sav.SetBoxSlotAtIndex(Make(sav, 25, version), slot, EntityImportSettings.None);
         var path = Path.Combine(work, version + ".details.sav");
         sav.Money = 3000;
         File.WriteAllBytes(path, TestSaves.Finish(sav));
