@@ -499,6 +499,188 @@ static class AllGames
         }
     }
 
+    // A save with something in it. An empty party doesn't read as a save on Game Boy.
+    static SaveFile OneFound(GameVersion version)
+    {
+        var sav = TestSaves.Start(version);
+        sav.SetBoxSlotAtIndex(Make(sav, 25, version), 0, EntityImportSettings.None);
+        if (sav.Generation <= 2) sav.SetPartySlotAtIndex(Make(sav, 25, version), 0, EntityImportSettings.None);
+        sav.Money = 3000;
+        return sav;
+    }
+
+    // A species in the middle of the list: somewhere a game can't confuse with its first entries.
+    static ushort Middle(PokedexEditor dex, int skip = 0) => dex.Entries[dex.Entries.Count / 2 + skip];
+
+    // Every field the game has, written to a real file and read back, then the limits it can't go past.
+    static void Trainer(GameVersion version, string label, string work)
+    {
+        var sav = OneFound(version);
+        var path = Path.Combine(work, version + ".trainer.sav");
+        File.WriteAllBytes(path, TestSaves.Finish(sav));
+
+        var doc = SaveDocument.Open(path);
+        var t = doc.Trainer;
+        Check(label, t.IsSupported && !t.Changed && !doc.HasChanges && doc.ToolChangeCount == 0, "abrir el entrenador no deja cambios");
+        Check(label, doc.BuildOutput().SequenceEqual(doc.OriginalBytes), "abrir el entrenador no altera el archivo");
+        // Blue only came out in Japan, where a blank save can't spell the name these tests start with.
+        string name = version == GameVersion.BU ? "サトシ" : "ASH";
+        if (version != GameVersion.BU) Check(label, t.Original.Name == "TRAINER", "lee el nombre", t.Original.Name);
+        Check(label, t.HasGender == (doc.Rules.Generation >= 3 || version == GameVersion.C), "ofrece el género solo donde se guarda");
+        Check(label, t.HasSecretId == doc.Rules.Generation >= 3, "ofrece el ID secreto solo donde existe");
+        bool newIds = doc.Rules.Generation >= 7;
+        Check(label, t.MaxTid == (newIds ? 999_999u : 65535u) && t.TidFormat == (newIds ? "D6" : "D5") && t.SidFormat == (newIds ? "D4" : "D5"), "usa el formato de ID del juego", t.TidFormat);
+        Check(label, t.HasBadges == (doc.Rules.Generation <= 6 || doc.Save is SAV8SWSH or SAV8BS), "ofrece medallas solo donde existen", t.BadgeFlags.ToString());
+
+        int badges = t.MaxBadgeCount != 0 ? 3 : t.BadgeFlags == 0 ? 0 : t.BadgeFlags == 16 ? 0b1000_0001_0000_0101 : 0b1000_0101;
+        var wanted = t.Original with { Name = name, Gender = t.HasGender ? (byte)1 : t.Original.Gender, Tid = 12345, Sid = t.HasSecretId ? 4242u : 0, Hours = 12, Minutes = 34, Seconds = 56, Badges = badges };
+        t.Edit = wanted;
+        Check(label, t.Validate() == null, "acepta al entrenador", t.Validate() ?? "");
+        Check(label, doc.HasChanges && doc.ToolChangeCount == 1, "el entrenador queda pendiente");
+        var bytes = doc.BuildOutput();
+        Check(label, bytes.SequenceEqual(doc.BuildOutput()), "guardar dos veces da lo mismo");
+        Check(label, doc.Save.OT == t.Original.Name && doc.Save.OT != name, "no toca la partida hasta guardar");
+        var edited = Path.Combine(work, version + ".trainer.edited.sav");
+        File.WriteAllBytes(edited, bytes);
+        var read = SaveDocument.Open(edited);
+        Check(label, read.Trainer.Original == wanted, "guarda al entrenador", read.Trainer.Original.ToString());
+        Check(label, !read.HasChanges && read.Pokemon.Count == doc.Pokemon.Count && read.Pokemon[0].Original.Species == doc.Pokemon[0].Original.Species, "conserva los Pokémon");
+        Check(label, read.Save.Money == 3000, "conserva el dinero");
+        if (read.Save is SAV8BS bdsp) Check(label, bdsp.MyStatus.BadgeCount == 3 && bdsp.FlagWork.BadgeCount() == 3, "la ficha y las banderas cuentan las mismas medallas");
+
+        // Back to where it started, over the file that was just edited.
+        var first = doc.Trainer.Original;
+        read.Trainer.Edit = first with { Name = first.Name.Length == 0 ? name : first.Name };
+        var back = Path.Combine(work, version + ".trainer.back.sav");
+        File.WriteAllBytes(back, read.BuildOutput());
+        Check(label, SaveDocument.Open(back).Trainer.Original == read.Trainer.Edit, "vuelve a los valores de antes");
+
+        void Refused(TrainerData data, string what)
+        {
+            t.Edit = data;
+            Check(label, t.Validate() != null && doc.ValidateEdits() != null, "rechaza " + what);
+            bool thrown = false;
+            try { doc.BuildOutput(); } catch (InvalidOperationException) { thrown = true; }
+            Check(label, thrown, "no guarda " + what);
+        }
+        Refused(first with { Name = " " }, "un nombre vacío");
+        Refused(first with { Name = new string('A', t.MaxNameLength + 1) }, "un nombre demasiado largo");
+        if (t.HasGender) Refused(first with { Gender = 2 }, "un género que no existe");
+        Refused(first with { Tid = t.MaxTid + 1 }, "un ID demasiado alto");
+        if (t.HasSecretId) Refused(first with { Sid = t.MaxSid + 1 }, "un ID secreto demasiado alto");
+        if (newIds) Refused(first with { Tid = 999_999, Sid = 4294 }, "un ID que no cabe en 32 bits");
+        Refused(first with { Hours = t.MaxHours + 1 }, "demasiadas horas");
+        Refused(first with { Minutes = 60 }, "minutos imposibles");
+        Refused(first with { Seconds = 60 }, "segundos imposibles");
+        t.Edit = first with { Hours = t.MaxHours, Minutes = 59, Seconds = 59 };
+        Check(label, t.Validate() == null, "acepta el máximo del reloj", t.Validate() ?? "");
+        var top = Path.Combine(work, version + ".trainer.top.sav");
+        File.WriteAllBytes(top, doc.BuildOutput());
+        Check(label, SaveDocument.Open(top).Trainer.Original == t.Edit, "guarda el máximo del reloj");
+        t.Reset();
+        Check(label, !doc.HasChanges && doc.BuildOutput().SequenceEqual(doc.OriginalBytes), "deshacer no deja rastro");
+
+        // The writer, backup included, on a throwaway copy.
+        var copy = Path.Combine(work, version + ".trainer.copy.sav");
+        File.Copy(path, copy, true);
+        var writer = SaveDocument.Open(copy);
+        writer.Trainer.Edit = writer.Trainer.Original with { Name = name };
+        var backup = writer.Write(copy, Path.Combine(work, "Backups"), _ => null);
+        Check(label, File.ReadAllBytes(Path.Combine(backup, Path.GetFileName(copy) + ".original")).SequenceEqual(writer.OriginalBytes), "el respaldo guarda la partida anterior");
+        Check(label, File.ReadAllText(Path.Combine(backup, "cambios.json")).Contains("\"after\": {"), "el respaldo anota al entrenador");
+        Check(label, SaveDocument.Open(copy).Save.OT == name, "el guardado real cambia al entrenador");
+    }
+
+    // Seen and caught through a real file: one species at a time, there and back, then all of them.
+    static void Pokedex(GameVersion version, string label, string work)
+    {
+        var sav = OneFound(version);
+        var path = Path.Combine(work, version + ".dex.sav");
+        File.WriteAllBytes(path, TestSaves.Finish(sav));
+
+        var doc = SaveDocument.Open(path);
+        var dex = doc.Pokedex;
+        Check(label, dex.CanView && dex.CanEdit, "ofrece la Pokédex");
+        Check(label, dex.Entries.SequenceEqual(dex.Entries.Order()) && dex.Entries.Distinct().Count() == dex.Entries.Count, "lista cada especie una vez, en orden");
+        Check(label, dex.Entries.All(s => s != 0 && s <= doc.Save.MaxSpeciesID), "lista especies que existen");
+        Check(label, dex.Entries.All(s => Catalog.Names.specieslist[s].Trim().Length > 0), "nombra las especies");
+        Check(label, !doc.HasChanges && doc.BuildOutput().SequenceEqual(doc.OriginalBytes), "abrir la Pokédex no altera el archivo");
+
+        ushort seen = dex.Entries[0], caught = Middle(dex), both = Middle(dex, 1), untouched = Middle(dex, 2);
+        dex.Set(seen, true, false);
+        dex.Set(caught, false, true);
+        dex.Set(both, true, true);
+        Check(label, dex.Get(caught) == new DexState(true, true), "capturado incluye visto");
+        Check(label, dex.ChangeCount == 3 && doc.ToolChangeCount == 3 && doc.HasChanges, "las marcas quedan pendientes", dex.ChangeCount.ToString());
+        Check(label, dex.SeenCount == 3 && dex.CaughtCount == 2, "cuenta las marcas", $"{dex.SeenCount}/{dex.CaughtCount}");
+        var bytes = doc.BuildOutput();
+        Check(label, bytes.SequenceEqual(doc.BuildOutput()), "guardar dos veces da lo mismo");
+        Check(label, !doc.Save.GetSeen(seen) && !doc.Save.GetCaught(caught), "no toca la partida hasta guardar");
+        var edited = Path.Combine(work, version + ".dex.edited.sav");
+        File.WriteAllBytes(edited, bytes);
+
+        var read = SaveDocument.Open(edited);
+        var saved = read.Pokedex;
+        Check(label, saved.Get(seen) == new DexState(true, false), "guarda una especie vista", Catalog.Names.specieslist[seen]);
+        Check(label, saved.Get(caught) == new DexState(true, true), "guarda una especie capturada", Catalog.Names.specieslist[caught]);
+        Check(label, saved.Get(both) == new DexState(true, true), "guarda la otra especie capturada");
+        Check(label, saved.Get(untouched) == new DexState(false, false), "no marca otra especie");
+        Check(label, saved.SeenCount == 3 && saved.CaughtCount == 2, "no marca nada más", $"{saved.SeenCount}/{saved.CaughtCount}");
+        Check(label, read.Pokemon.Count == doc.Pokemon.Count && read.Pokemon[0].Original.Species == doc.Pokemon[0].Original.Species, "conserva los Pokémon");
+        Check(label, !read.HasChanges && read.BuildOutput().SequenceEqual(bytes), "lo guardado queda sin cambios pendientes");
+
+        // What was saved can be taken back, except where the game has no way to.
+        saved.Set(seen, false, false);
+        saved.Set(caught, true, false);
+        if (saved.CanClear)
+        {
+            var cleared = Path.Combine(work, version + ".dex.cleared.sav");
+            File.WriteAllBytes(cleared, read.BuildOutput());
+            var after = SaveDocument.Open(cleared).Pokedex;
+            Check(label, after.Get(seen) == new DexState(false, false), "desmarca una especie");
+            Check(label, after.Get(caught) == new DexState(true, false), "deja de capturada y sigue vista");
+            Check(label, after.Get(both) == new DexState(true, true), "no toca a las demás");
+            Check(label, after.SeenCount == 2 && after.CaughtCount == 1, "cuenta lo que queda", $"{after.SeenCount}/{after.CaughtCount}");
+        }
+        else Check(label, saved.ChangeCount == 0 && saved.Get(caught).Caught, "no ofrece desmarcar donde no se puede");
+        saved.Reset();
+        Check(label, !read.HasChanges && read.BuildOutput().SequenceEqual(bytes), "deshacer no deja rastro");
+
+        dex.Reset();
+        dex.MarkAll(caught: false);
+        Check(label, dex.SeenCount == dex.Entries.Count && dex.CaughtCount == 0, "marca todas como vistas");
+        var seenAll = Path.Combine(work, version + ".dex.seen.sav");
+        File.WriteAllBytes(seenAll, doc.BuildOutput());
+        var allSeen = SaveDocument.Open(seenAll).Pokedex;
+        Check(label, allSeen.SeenCount == dex.Entries.Count && allSeen.CaughtCount == 0, "guarda todas como vistas", $"{allSeen.SeenCount}/{allSeen.CaughtCount}");
+
+        dex.MarkAll(caught: true);
+        Check(label, dex.CaughtCount == dex.Entries.Count, "marca todas como capturadas");
+        var caughtAll = Path.Combine(work, version + ".dex.caught.sav");
+        File.WriteAllBytes(caughtAll, doc.BuildOutput());
+        var allCaught = SaveDocument.Open(caughtAll);
+        Check(label, allCaught.Pokedex.SeenCount == dex.Entries.Count && allCaught.Pokedex.CaughtCount == dex.Entries.Count, "guarda todas como capturadas", $"{allCaught.Pokedex.SeenCount}/{allCaught.Pokedex.CaughtCount}");
+        Check(label, allCaught.Save.Money == 3000, "conserva el dinero con la Pokédex llena");
+        if (allCaught.Pokedex.CanClear)
+        {
+            foreach (var species in allCaught.Pokedex.Entries) allCaught.Pokedex.Set(species, false, false);
+            var emptied = Path.Combine(work, version + ".dex.emptied.sav");
+            File.WriteAllBytes(emptied, allCaught.BuildOutput());
+            var empty = SaveDocument.Open(emptied).Pokedex;
+            Check(label, empty.SeenCount == 0 && empty.CaughtCount == 0, "vacía la Pokédex entera", $"{empty.SeenCount}/{empty.CaughtCount}");
+        }
+        dex.Reset();
+        Check(label, !doc.HasChanges && doc.BuildOutput().SequenceEqual(doc.OriginalBytes), "deshacer todo no deja rastro");
+
+        var copy = Path.Combine(work, version + ".dex.copy.sav");
+        File.Copy(path, copy, true);
+        var writer = SaveDocument.Open(copy);
+        writer.Pokedex.Set(caught, true, true);
+        var backup = writer.Write(copy, Path.Combine(work, "Backups"), _ => null);
+        Check(label, File.ReadAllText(Path.Combine(backup, "cambios.json")).Contains("\"pokedex\""), "el respaldo anota la Pokédex");
+        Check(label, SaveDocument.Open(copy).Pokedex.Get(caught).Caught, "el guardado real marca la Pokédex");
+    }
+
     // Changing language halfway must not change one byte of what gets saved.
     // Level, names and ball written to a real file and read back, plus a verdict and a Showdown round trip.
     static void Details(GameVersion version, string label, string work)
@@ -677,6 +859,23 @@ static class AllGames
         Console.WriteLine($"{rows.Count} formas");
     }
 
+    /// <summary>Only the trainer and the Pokédex, for a quick answer while working on them.</summary>
+    public static void RunTools(string work)
+    {
+        Directory.CreateDirectory(work);
+        foreach (var (game, label) in Games)
+        {
+            int before = failed;
+            try { Trainer(game, label, work); Pokedex(game, label, work); }
+            catch (Exception ex) { failed++; failures.Add($"{label}: {ex.GetType().Name}: {ex.Message.Split('\n')[0]}  {ex.StackTrace?.Split('\n').FirstOrDefault()?.Trim()}"); }
+            Console.WriteLine($"{(failed == before ? "ok   " : "FALLA")} {label}");
+        }
+        Console.WriteLine();
+        foreach (var f in failures) Console.WriteLine("  " + f);
+        Console.WriteLine($"\nRESULTADO: {Games.Length} juegos, {passed} comprobaciones correctas, {failed} fallidas");
+        Environment.ExitCode = failed == 0 ? 0 : 1;
+    }
+
     public static void Run(string work)
     {
         // Colosseum and XD are left out: their saves live in an encrypted GameCube container
@@ -685,7 +884,7 @@ static class AllGames
         foreach (var (game, label) in Games)
         {
             int before = failed;
-            try { Run(game, label, work); FormsOnDisk(game, label, work); StuckForms(game, label); Abilities(game, label, work); Details(game, label, work); AbilityWithForms(game, label); LanguageSwitch(game, label, work); InEveryLanguage(game, label, work); }
+            try { Run(game, label, work); FormsOnDisk(game, label, work); StuckForms(game, label); Abilities(game, label, work); Details(game, label, work); Trainer(game, label, work); Pokedex(game, label, work); AbilityWithForms(game, label); LanguageSwitch(game, label, work); InEveryLanguage(game, label, work); }
             catch (Exception ex) { failed++; failures.Add($"{label}: {ex.GetType().Name}: {ex.Message.Split('\n')[0]}  {ex.StackTrace?.Split('\n').FirstOrDefault()?.Trim()}"); }
             Console.WriteLine($"{(failed == before ? "ok   " : "FALLA")} {label}");
         }

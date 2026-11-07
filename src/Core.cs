@@ -639,9 +639,14 @@ public sealed class SaveDocument
     public IReadOnlyDictionary<ushort, int> ItemChanges => itemChanges;
     public long Money { get; set; }
     public bool MoneyChanged => Money != Save.Money;
-    public bool HasChanges => DirtyCount != 0 || MoneyChanged || itemChanges.Count != 0;
+    public bool HasChanges => DirtyCount != 0 || MoneyChanged || itemChanges.Count != 0 || ToolChangeCount != 0;
     public int ResourceChangeCount => (MoneyChanged ? 1 : 0) + itemChanges.Count;
     public int DirtyCount => Pokemon.Count(p => p.Dirty);
+    TrainerEditor? trainer;
+    PokedexEditor? pokedex;
+    public TrainerEditor Trainer => trainer ??= new(Save);
+    public PokedexEditor Pokedex => pokedex ??= new(Save);
+    public int ToolChangeCount => (trainer?.Changed == true ? 1 : 0) + (pokedex?.ChangeCount ?? 0);
     public const int TeamSize = 6;
     public int BoxCount => Save.HasBox ? Save.BoxCount : 0;
     public int OpeningBox
@@ -926,7 +931,7 @@ public sealed class SaveDocument
         if (Money < 0 || Money > Rules.MaxMoney) return T("El dinero debe estar entre 0 y {0:N0}.", Rules.MaxMoney);
         if (Pokemon.Any(p => p.Edit.HeldItem != p.Baseline.HeldItem && p.Edit.HeldItem != 0 && !Items.Any(i => i.Id == p.Edit.HeldItem)))
             return T("Un Pokémon tiene preparado un objeto que no está disponible en esta partida.");
-        return Pokemon.Where(p => p.Dirty).Select(Catalog.Validate).FirstOrDefault(error => error != null) ?? ValidateSupply();
+        return Pokemon.Where(p => p.Dirty).Select(Catalog.Validate).FirstOrDefault(error => error != null) ?? ValidateSupply() ?? trainer?.Validate();
     }
 
     public byte[] BuildOutput() => ZaSave is { } za ? BuildZA(za) : Build();
@@ -948,6 +953,7 @@ public sealed class SaveDocument
             if (e.IsParty) output.SetPartySlotAtIndex(p, e.Index, EntityImportSettings.None);
             else output.SetBoxSlotAtIndex(p, e.Index, EntityImportSettings.None);
         }
+        trainer?.WriteTo(output); pokedex?.WriteTo(output);
         var bytes = output.Write().ToArray();
         if (bytes.Length != OriginalBytes.Length) throw new InvalidOperationException(T("Cambió el tamaño de la partida."));
         var reopened = Reopen(bytes);
@@ -967,7 +973,14 @@ public sealed class SaveDocument
             int expected = effectiveItems.TryGetValue(item.Id, out var count) ? count : item.OriginalCount;
             if (actual != expected) throw new InvalidOperationException(T("No se pudo comprobar {0} después de guardar.", item.Name));
         }
+        CheckTools(reopened);
         return bytes;
+    }
+
+    void CheckTools(SaveFile reopened)
+    {
+        if (trainer?.Matches(reopened) == false) throw new InvalidOperationException(T("No se pudieron comprobar los datos del entrenador después de guardar."));
+        if (pokedex?.FirstDifference(reopened) is { } species) throw new InvalidOperationException(T("No se pudo comprobar {0} después de guardar.", Catalog.Names.specieslist[species]));
     }
 
     void WriteBag(SaveFile output, Dictionary<ushort, int> changes)
@@ -1023,6 +1036,7 @@ public sealed class SaveDocument
             if (e.IsParty) output.SetPartySlotAtIndex(p, e.Index, EntityImportSettings.None);
             else output.SetBoxSlotAtIndex(p, e.Index, EntityImportSettings.None);
         }
+        trainer?.WriteTo(output); pokedex?.WriteTo(output);
         var bytes = output.Write().ToArray();
         if (bytes.Length != OriginalBytes.Length || !SwishCrypto.GetIsHashValid(bytes))
             throw new InvalidOperationException(T("No se pudo verificar la integridad de la partida editada."));
@@ -1038,6 +1052,9 @@ public sealed class SaveDocument
         if (Pokemon.Any(p => p.Dirty && !p.IsParty)) AllowBlock(original.BoxInfo.Data);
         if (MoneyChanged) allowedBlocks.Add(SaveBlockAccessor9ZA.KMoney);
         if (effectiveItems.Count != 0) AllowBlock(original.Items.Data);
+        if (trainer?.ChangesStatus == true) AllowBlock(original.MyStatus.Data);
+        if (trainer?.ChangesClock == true) allowedBlocks.Add(SaveBlockAccessor9ZA.KPlayedSeconds);
+        if (pokedex?.ChangeCount > 0) AllowBlock(original.Zukan.Data);
         for (int i = 0; i < original.AllBlocks.Count; i++)
         {
             var a = original.AllBlocks[i]; var b = reopened.AllBlocks[i];
@@ -1070,6 +1087,7 @@ public sealed class SaveDocument
         for (int i = 0; i < beforeBoxes.Count; i++)
             if (beforeBoxes[i].Species == 0 && !beforeBoxes[i].Data.SequenceEqual(afterBoxes[i].Data))
                 throw new InvalidOperationException(T("Se modificó un espacio vacío de las cajas."));
+        CheckTools(reopened);
         return bytes;
     }
 
@@ -1095,6 +1113,8 @@ public sealed class SaveDocument
             pokemon = Pokemon.Where(x => x.Dirty).Select(e => new {
                 e.DisplayName, e.SpeciesName, e.Location, before = e.Baseline, after = e.Edit,
             }),
+            trainer = trainer?.Changed == true ? new { before = trainer.Original, after = trainer.Edit } : null,
+            pokedex = pokedex?.Changes.Select(c => new { c.Species, name = Catalog.Names.specieslist[c.Species], before = c.Before, after = c.After }),
         }, new JsonSerializerOptions { WriteIndented = true }));
         if (Hash(File.ReadAllBytes(backupFile)) != OriginalHash) throw new IOException(T("No se pudo verificar el respaldo."));
         var temp = destination + ".editrainer-" + Guid.NewGuid().ToString("N") + ".tmp";

@@ -144,12 +144,34 @@ Click **Save game** to apply the money, item and Pokémon changes together, afte
 
 Rows keep their room for fields and labels. If you shrink the window and the content doesn't fit, you can scroll inside each tab.
 
+## Trainer and Pokédex
+
+**Tools** opens two windows that work on the whole save. What you change there stays pending like any other change: it's applied with **Save game**, it counts as a pending change when you close the app, and it's listed in the automatic backup. **Close** keeps what you prepared, and **Undo** discards it.
+
+**Trainer** shows the name, gender, trainer ID, secret ID, play time and badges. Each game only shows what it stores:
+
+- **Gender** appears in Crystal and from Gen 3 onwards. From Gen 6 the character's clothes and model are saved separately and don't change with it, so keep the backup at hand if you change it.
+- **IDs** follow each game: one 5-digit ID in Gen 1 and 2, a 5-digit ID and secret ID in Gen 3 to 6, and a 6-digit ID with a 4-digit secret ID from Gen 7.
+- **Badges** are one box each in Gen 1 to 6 and in Brilliant Diamond and Shining Pearl, with a second row for Kanto in Gold, Silver, Crystal, HeartGold and SoulSilver. Sword and Shield only keep how many you have. The other games don't have badges to edit.
+- Changing the name or the IDs makes the game treat the Pokémon you already have as received from another trainer.
+- Colosseum, XD and box-only saves don't have this window.
+
+**Pokédex** lists every species the open game can register. Search by name or number, tick **Seen** or **Caught**, or use **Mark all seen** and **Mark all caught**.
+
+- A caught Pokémon counts as seen, and clearing **Seen** also clears **Caught**.
+- Marking registers the species with its main form. Forms, shinies and languages you already have are kept, and it doesn't fill in the rest of them.
+- A game can still hide what you marked until you reach that point of the story, such as species outside the regional Pokédex before you get the National one.
+- **Legends: Arceus** only adds marks, because its progress comes from research: what's already registered can't be cleared.
+- **Scarlet and Violet** saves from before version 2.0.1 keep the Pokédex in an older format. You can look at it, but not change it.
+- In **Legends: Z-A** without the DLC the list is the Lumiose Pokédex.
+- Colosseum, XD and box-only saves don't have a Pokédex.
+
 ## Backups
 
 Backups go in the `Backups` folder, inside the app's folder. The **Open backups** link opens it. Each save includes:
 
 - `main.original` (or `<name>.sav.original`): the full save from before the edit.
-- `cambios.json`: which Pokémon and values changed.
+- `cambios.json`: which Pokémon and values changed, along with the trainer and Pokédex changes.
 - `destino.anterior`: an extra copy, if a file other than the one you opened was overwritten.
 
 To restore a backup, close the emulator, open the `.original` file and use **Save as** to store it under its original name in the emulator's save folder. To open `main.original`, choose the **All files** filter in the file selector.

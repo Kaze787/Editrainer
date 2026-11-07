@@ -64,6 +64,7 @@ static class Program
                     if (args[0] == "--ui-test") form.View.RunInteractionChecks(args[2]);
                     else if (args[0] == "--layout-test") form.View.RunLayoutChecks(args[2], form.Settings);
                     else if (args[0] == "--settings-test") form.RunSettingsChecks(args[2]);
+                    else if (args.Length > 8 && args[8] is "trainer" or "pokedex") form.View.CaptureTool(args[2], args[8]);
                     else form.View.CaptureScreenshot(args[2], args.Length > 4 ? int.Parse(args[4]) : 0, args.Length > 5 ? int.Parse(args[5]) : 0, args.Length > 8 && args[8] == "shiny");
                 } catch (Exception ex) {
                     File.WriteAllText(args[2] + ".error.txt", ex.ToString());

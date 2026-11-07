@@ -205,6 +205,25 @@ public sealed class EditorView : UserControl
     // Each tool that works on the whole save adds its entry here.
     void BuildTools()
     {
+        AddTool(T("Entrenador…"), () => OpenSaveTool(document!.Trainer.IsSupported, T("Esta partida no guarda un entrenador que se pueda editar aquí."), () => new TrainerDialog(document)));
+        AddTool(T("Pokédex…"), () => OpenSaveTool(document!.Pokedex.CanView, T("Esta partida no tiene Pokédex."), () => new PokedexDialog(document)));
+    }
+
+    // Tools only prepare changes: they are saved with everything else.
+    void OpenSaveTool(bool available, string unavailable, Func<Form> open)
+    {
+        if (!available) { Notify(unavailable); return; }
+        using var dialog = open();
+        dialog.ShowDialog(Window);
+        ShowTrainer();
+        if (document!.ToolChangeCount != 0) Notify(T("Cambios preparados. Guarda la partida para aplicarlos."));
+        else UpdateState();
+    }
+
+    void ShowTrainer()
+    {
+        var card = document!.Trainer.Edit;
+        trainer.Text = $"{card.Name}  ·  {card.Hours} h {card.Minutes} min  ·  {document.FilePath}";
     }
 
     void AddTool(string text, Action run) => toolsMenu.Items.Add(text, null, (_, _) => { if (document != null) run(); });
@@ -522,7 +541,7 @@ public sealed class EditorView : UserControl
             evTotal.ForeColor = limit != 0 && total > limit ? Theme.Danger : Theme.Accent;
         }
         if (error == null) ShowLegality();
-        Text = AppTitle + (loaded && document!.HasChanges ? T(" · {0} cambios pendientes", document.DirtyCount + document.ResourceChangeCount) : "");
+        Text = AppTitle + (loaded && document!.HasChanges ? T(" · {0} cambios pendientes", document.DirtyCount + document.ResourceChangeCount + document.ToolChangeCount) : "");
         teamGrid.Invalidate(); boxGrid.Invalidate();
     }
 
@@ -586,7 +605,7 @@ public sealed class EditorView : UserControl
         current = null; document = loaded; ApplyRules(loaded.Rules); resources.Bind(document);
         box = document.OpeningBox; boxPicker.Items.Clear(); boxPicker.Items.AddRange(Enumerable.Range(0, document.BoxCount).Select(document.BoxLabel).ToArray<object>());
         search.Text = "";
-        trainer.Text = $"{document.Save.OT}  ·  {document.Save.PlayedHours} h {document.Save.PlayedMinutes} min  ·  {document.FilePath}";
+        ShowTrainer();
         tips.SetToolTip(trainer, document.FilePath);
         RefreshList(); UpdateState();
     }
@@ -700,6 +719,38 @@ public sealed class EditorView : UserControl
         tabs.SelectedIndex = Math.Clamp(page, 0, tabs.TabCount - 1); Refresh();
         using var bitmap = Theme.Capture(Window);
         bitmap.Save(path, System.Drawing.Imaging.ImageFormat.Png);
+    }
+
+    // Dialogs block the run that opens them, so the checks look at them from far off screen.
+    static T OffScreen<T>(T dialog) where T : Form
+    {
+        dialog.StartPosition = FormStartPosition.Manual; dialog.Location = new Point(-16000, -16000);
+        dialog.Show(); Application.DoEvents();
+        return dialog;
+    }
+
+    /// <summary>For the screenshots, which can't wait on a dialog.</summary>
+    public void CaptureTool(string path, string tool)
+    {
+        using Form dialog = OffScreen<Form>(tool == "trainer" ? new TrainerDialog(document!) : new PokedexDialog(document!));
+        dialog.Refresh();
+        using var bitmap = Theme.Capture(dialog);
+        bitmap.Save(path, System.Drawing.Imaging.ImageFormat.Png);
+    }
+
+    void CheckTools(Action<bool, string> Check, string sizeLabel)
+    {
+        foreach (var dialog in new Form[] { new TrainerDialog(document!), new PokedexDialog(document!) })
+        {
+            using (OffScreen(dialog))
+            {
+                var clipped = Clipped(dialog);
+                Check(clipped.Length == 0, $"Every text fits in {dialog.Text} ({sizeLabel}) {clipped}");
+                Check(dialog.Width <= Window.MinimumSize.Width && dialog.Height <= Window.MinimumSize.Height, $"{dialog.Text} fits a small screen ({dialog.Size})");
+                var cut = Descendants(dialog).FirstOrDefault(c => c.Visible && dialog.RectangleToClient(c.RectangleToScreen(c.ClientRectangle)).Right > dialog.ClientSize.Width);
+                Check(cut == null, $"Nothing is cut off on the right of {dialog.Text} ({cut?.GetType().Name} {cut?.Text})");
+            }
+        }
     }
 
     public void RunInteractionChecks(string reportPath)
@@ -824,6 +875,19 @@ public sealed class EditorView : UserControl
         Check(!save.Enabled && !document.HasChanges && heroPanel?.Visible == false, "Resource undo clears global pending changes and the bag tab hides the Pokémon header");
         Choose(4); tabs.SelectedIndex = 0; equipment.RunInteractionChecks(Check); resources.RefreshDraft(); UpdateState();
         Check(!document.HasChanges && !save.Enabled, "Equipment and friendship test edits can be completely undone");
+        Check(toolsMenu.Items.Cast<ToolStripItem>().Any(i => i.Text == T("Entrenador…")) && toolsMenu.Items.Cast<ToolStripItem>().Any(i => i.Text == T("Pokédex…")), "The Tools menu offers the trainer and the Pokédex");
+        using (var dialog = OffScreen(new TrainerDialog(document))) dialog.RunInteractionChecks(document, Check);
+        using (var dialog = OffScreen(new PokedexDialog(document))) dialog.RunInteractionChecks(document, Check);
+        document.Trainer.Edit = document.Trainer.Original with { Name = "Ana" }; document.Pokedex.Set(document.Pokedex.Entries[0], true, true);
+        UpdateState(); ShowTrainer();
+        Check(save.Enabled && Text.Contains($"{document.ToolChangeCount} ") && document.ToolChangeCount == 2 && trainer.Text.StartsWith("Ana"), "Tool changes enable Save and count in the window title");
+        Check(document.HasChanges, "Tool changes make closing ask first");
+        var toolOutput = document.BuildOutput();
+        Check(SaveDocument.Hash(document.OriginalBytes) == document.OriginalHash && document.Save.OT != "Ana", "Preparing the file leaves the open game alone");
+        Check(toolOutput.Length == document.OriginalBytes.Length, "Tool changes can be saved");
+        document.Trainer.Reset(); document.Pokedex.Reset();
+        UpdateState(); ShowTrainer();
+        Check(!document.HasChanges && !save.Enabled, "Undoing the tools leaves nothing pending");
         CheckLayout(Check, "normal window");
         Window.Size = Window.MinimumSize; CheckLayout(Check, "minimum window");
         var fonts = Descendants(tabs).Select(c => (Control: c, Font: c.Font)).ToList();
@@ -849,7 +913,7 @@ public sealed class EditorView : UserControl
         }
         var natureLabel = ((TableLayoutPanel)nature.Parent!).GetControlFromPosition(0, 0)!;
         Check(natureLabel.Width >= natureLabel.GetPreferredSize(Size.Empty).Width, $"Nature label is not truncated ({sizeLabel})");
-        Check(abilityNote.Width >= abilityNote.PreferredWidth, $"Ability note fits on its line ({sizeLabel}; {abilityNote.Width} of {abilityNote.PreferredWidth})");
+        Check(!abilityNote.Visible || abilityNote.Width >= abilityNote.PreferredWidth, $"Ability note fits on its line ({sizeLabel}; {abilityNote.Width} of {abilityNote.PreferredWidth})");
         var statsPage = tabs.TabPages[0];
         var cut = Descendants(statsPage).FirstOrDefault(c => c.Visible && statsPage.RectangleToClient(c.RectangleToScreen(c.ClientRectangle)).Right > statsPage.ClientSize.Width);
         if (!sizeLabel.Contains("larger text")) Check(cut == null, $"Nothing is cut off on the right of the stats tab ({sizeLabel}; {cut?.GetType().Name} {cut?.Text} {cut?.Bounds} of {cut?.Parent?.GetType().Name} {cut?.Parent?.ClientSize}, page {statsPage.ClientSize}, scroll {statsPage.VerticalScroll.Visible})");
@@ -872,12 +936,13 @@ public sealed class EditorView : UserControl
             if (page == 2) Check(resources.VisibleItemRows >= 3, $"The item list shows several rows ({sizeLabel}: {resources.VisibleItemRows})");
         }
         tabs.SelectedIndex = 0;
+        CheckTools(Check, sizeLabel);
     }
 
     static IEnumerable<Control> Descendants(Control parent) => parent.Controls.Cast<Control>().SelectMany(c => new[] { c }.Concat(Descendants(c)));
 
     // Text that doesn't fit its control, in whatever language is on screen.
-    static string Clipped(Control root) => string.Join(" | ", Descendants(root).Where(c => {
+    internal static string Clipped(Control root) => string.Join(" | ", Descendants(root).Where(c => {
         if (!c.Visible || c.Text.Length == 0 || c is not (Label { AutoEllipsis: false } or ButtonBase)) return false;
         var size = TextRenderer.MeasureText(c.Text, c.Font, new Size(c.ClientSize.Width, int.MaxValue), TextFormatFlags.WordBreak);
         return size.Height > c.ClientSize.Height + 1 || size.Width > c.ClientSize.Width + 1;

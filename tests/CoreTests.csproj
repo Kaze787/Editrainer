@@ -3,6 +3,7 @@
   <ItemGroup>
     <Compile Include="../src/Core.cs" Link="Core.cs" />
     <Compile Include="../src/Strings.cs" Link="Strings.cs" />
+    <Compile Include="../src/TrainerDex.cs" Link="TrainerDex.cs" />
     <Reference Include="PKHeX.Core"><HintPath>../lib/PKHeX.Core.dll</HintPath></Reference>
   </ItemGroup>
 </Project>
