@@ -1,0 +1,31 @@
+# Build output
+bin/
+obj/
+/*.exe
+/*.dll
+/*.pdb
+/*.deps.json
+/*.runtimeconfig.json
+build-tools/release/
+build-tools/previous-*/
+
+# PKHeX source kept for reference: https://github.com/kwsch/PKHeX
+build-tools/*-source/
+build-tools/*.cs
+
+# The user's own data
+Backups/
+settings.json
+error.log
+
+# Official sprites and artwork: build-tools/Download-Sprites.ps1 fetches them
+Assets/artwork/
+Assets/sprites/
+
+# Previews and test results
+/Vista-previa*
+*.trace.txt
+*.error.txt
+tests/*
+!tests/*.cs
+!tests/*.csproj

@@ -1,0 +1,1270 @@
+[
+ {
+  "local": "100-1",
+  "remote": "10231"
+ },
+ {
+  "local": "101-1",
+  "remote": "10232"
+ },
+ {
+  "local": "1012-1",
+  "remote": "1012-artisan"
+ },
+ {
+  "local": "1013-1",
+  "remote": "1013-masterpiece"
+ },
+ {
+  "local": "1017-1",
+  "remote": "10273"
+ },
+ {
+  "local": "1017-2",
+  "remote": "10274"
+ },
+ {
+  "local": "1017-3",
+  "remote": "10275"
+ },
+ {
+  "local": "103-1",
+  "remote": "10114"
+ },
+ {
+  "local": "105-1",
+  "remote": "10115"
+ },
+ {
+  "local": "110-1",
+  "remote": "10167"
+ },
+ {
+  "local": "122-1",
+  "remote": "10168"
+ },
+ {
+  "local": "128-1",
+  "remote": "10250"
+ },
+ {
+  "local": "128-2",
+  "remote": "10251"
+ },
+ {
+  "local": "128-3",
+  "remote": "10252"
+ },
+ {
+  "local": "144-1",
+  "remote": "10169"
+ },
+ {
+  "local": "145-1",
+  "remote": "10170"
+ },
+ {
+  "local": "146-1",
+  "remote": "10171"
+ },
+ {
+  "local": "157-1",
+  "remote": "10233"
+ },
+ {
+  "local": "172-1",
+  "remote": "172-spiky-eared"
+ },
+ {
+  "local": "19-1",
+  "remote": "10091"
+ },
+ {
+  "local": "194-1",
+  "remote": "10253"
+ },
+ {
+  "local": "199-1",
+  "remote": "10172"
+ },
+ {
+  "local": "20-1",
+  "remote": "10092"
+ },
+ {
+  "local": "201-1",
+  "remote": "201-b"
+ },
+ {
+  "local": "201-10",
+  "remote": "201-k"
+ },
+ {
+  "local": "201-11",
+  "remote": "201-l"
+ },
+ {
+  "local": "201-12",
+  "remote": "201-m"
+ },
+ {
+  "local": "201-13",
+  "remote": "201-n"
+ },
+ {
+  "local": "201-14",
+  "remote": "201-o"
+ },
+ {
+  "local": "201-15",
+  "remote": "201-p"
+ },
+ {
+  "local": "201-16",
+  "remote": "201-q"
+ },
+ {
+  "local": "201-17",
+  "remote": "201-r"
+ },
+ {
+  "local": "201-18",
+  "remote": "201-s"
+ },
+ {
+  "local": "201-19",
+  "remote": "201-t"
+ },
+ {
+  "local": "201-2",
+  "remote": "201-c"
+ },
+ {
+  "local": "201-20",
+  "remote": "201-u"
+ },
+ {
+  "local": "201-21",
+  "remote": "201-v"
+ },
+ {
+  "local": "201-22",
+  "remote": "201-w"
+ },
+ {
+  "local": "201-23",
+  "remote": "201-x"
+ },
+ {
+  "local": "201-24",
+  "remote": "201-y"
+ },
+ {
+  "local": "201-25",
+  "remote": "201-z"
+ },
+ {
+  "local": "201-26",
+  "remote": "201-exclamation"
+ },
+ {
+  "local": "201-27",
+  "remote": "201-question"
+ },
+ {
+  "local": "201-3",
+  "remote": "201-d"
+ },
+ {
+  "local": "201-4",
+  "remote": "201-e"
+ },
+ {
+  "local": "201-5",
+  "remote": "201-f"
+ },
+ {
+  "local": "201-6",
+  "remote": "201-g"
+ },
+ {
+  "local": "201-7",
+  "remote": "201-h"
+ },
+ {
+  "local": "201-8",
+  "remote": "201-i"
+ },
+ {
+  "local": "201-9",
+  "remote": "201-j"
+ },
+ {
+  "local": "211-1",
+  "remote": "10234"
+ },
+ {
+  "local": "215-1",
+  "remote": "10235"
+ },
+ {
+  "local": "222-1",
+  "remote": "10173"
+ },
+ {
+  "local": "25-1",
+  "remote": "10094"
+ },
+ {
+  "local": "25-2",
+  "remote": "10095"
+ },
+ {
+  "local": "25-3",
+  "remote": "10096"
+ },
+ {
+  "local": "25-4",
+  "remote": "10097"
+ },
+ {
+  "local": "25-5",
+  "remote": "10098"
+ },
+ {
+  "local": "25-6",
+  "remote": "10099"
+ },
+ {
+  "local": "25-7",
+  "remote": "10148"
+ },
+ {
+  "local": "25-9",
+  "remote": "10160"
+ },
+ {
+  "local": "25-cosplay-1",
+  "remote": "10080"
+ },
+ {
+  "local": "25-cosplay-2",
+  "remote": "10081"
+ },
+ {
+  "local": "25-cosplay-3",
+  "remote": "10082"
+ },
+ {
+  "local": "25-cosplay-4",
+  "remote": "10083"
+ },
+ {
+  "local": "25-cosplay-5",
+  "remote": "10084"
+ },
+ {
+  "local": "25-cosplay-6",
+  "remote": "10085"
+ },
+ {
+  "local": "26-1",
+  "remote": "10100"
+ },
+ {
+  "local": "263-1",
+  "remote": "10174"
+ },
+ {
+  "local": "264-1",
+  "remote": "10175"
+ },
+ {
+  "local": "27-1",
+  "remote": "10101"
+ },
+ {
+  "local": "28-1",
+  "remote": "10102"
+ },
+ {
+  "local": "37-1",
+  "remote": "10103"
+ },
+ {
+  "local": "38-1",
+  "remote": "10104"
+ },
+ {
+  "local": "386-1",
+  "remote": "10001"
+ },
+ {
+  "local": "386-2",
+  "remote": "10002"
+ },
+ {
+  "local": "386-3",
+  "remote": "10003"
+ },
+ {
+  "local": "412-1",
+  "remote": "412-sandy"
+ },
+ {
+  "local": "412-2",
+  "remote": "412-trash"
+ },
+ {
+  "local": "413-1",
+  "remote": "10004"
+ },
+ {
+  "local": "413-2",
+  "remote": "10005"
+ },
+ {
+  "local": "422-1",
+  "remote": "422-east"
+ },
+ {
+  "local": "423-1",
+  "remote": "423-east"
+ },
+ {
+  "local": "479-1",
+  "remote": "10008"
+ },
+ {
+  "local": "479-2",
+  "remote": "10009"
+ },
+ {
+  "local": "479-3",
+  "remote": "10010"
+ },
+ {
+  "local": "479-4",
+  "remote": "10011"
+ },
+ {
+  "local": "479-5",
+  "remote": "10012"
+ },
+ {
+  "local": "483-1",
+  "remote": "10245"
+ },
+ {
+  "local": "484-1",
+  "remote": "10246"
+ },
+ {
+  "local": "487-1",
+  "remote": "10007"
+ },
+ {
+  "local": "492-1",
+  "remote": "10006"
+ },
+ {
+  "local": "493-1",
+  "remote": "493-fighting"
+ },
+ {
+  "local": "493-10",
+  "remote": "493-water"
+ },
+ {
+  "local": "493-11",
+  "remote": "493-grass"
+ },
+ {
+  "local": "493-12",
+  "remote": "493-electric"
+ },
+ {
+  "local": "493-13",
+  "remote": "493-psychic"
+ },
+ {
+  "local": "493-14",
+  "remote": "493-ice"
+ },
+ {
+  "local": "493-15",
+  "remote": "493-dragon"
+ },
+ {
+  "local": "493-16",
+  "remote": "493-dark"
+ },
+ {
+  "local": "493-17",
+  "remote": "493-fairy"
+ },
+ {
+  "local": "493-2",
+  "remote": "493-flying"
+ },
+ {
+  "local": "493-3",
+  "remote": "493-poison"
+ },
+ {
+  "local": "493-4",
+  "remote": "493-ground"
+ },
+ {
+  "local": "493-5",
+  "remote": "493-rock"
+ },
+ {
+  "local": "493-6",
+  "remote": "493-bug"
+ },
+ {
+  "local": "493-7",
+  "remote": "493-ghost"
+ },
+ {
+  "local": "493-8",
+  "remote": "493-steel"
+ },
+ {
+  "local": "493-9",
+  "remote": "493-fire"
+ },
+ {
+  "local": "50-1",
+  "remote": "10105"
+ },
+ {
+  "local": "503-1",
+  "remote": "10236"
+ },
+ {
+  "local": "51-1",
+  "remote": "10106"
+ },
+ {
+  "local": "52-1",
+  "remote": "10107"
+ },
+ {
+  "local": "52-2",
+  "remote": "10161"
+ },
+ {
+  "local": "53-1",
+  "remote": "10108"
+ },
+ {
+  "local": "549-1",
+  "remote": "10237"
+ },
+ {
+  "local": "550-1",
+  "remote": "10016"
+ },
+ {
+  "local": "550-2",
+  "remote": "10247"
+ },
+ {
+  "local": "554-1",
+  "remote": "10176"
+ },
+ {
+  "local": "555-2",
+  "remote": "10177"
+ },
+ {
+  "local": "562-1",
+  "remote": "10179"
+ },
+ {
+  "local": "570-1",
+  "remote": "10238"
+ },
+ {
+  "local": "571-1",
+  "remote": "10239"
+ },
+ {
+  "local": "58-1",
+  "remote": "10229"
+ },
+ {
+  "local": "585-1",
+  "remote": "585-summer"
+ },
+ {
+  "local": "585-2",
+  "remote": "585-autumn"
+ },
+ {
+  "local": "585-3",
+  "remote": "585-winter"
+ },
+ {
+  "local": "586-1",
+  "remote": "586-summer"
+ },
+ {
+  "local": "586-2",
+  "remote": "586-autumn"
+ },
+ {
+  "local": "586-3",
+  "remote": "586-winter"
+ },
+ {
+  "local": "59-1",
+  "remote": "10230"
+ },
+ {
+  "local": "618-1",
+  "remote": "10180"
+ },
+ {
+  "local": "628-1",
+  "remote": "10240"
+ },
+ {
+  "local": "641-1",
+  "remote": "10019"
+ },
+ {
+  "local": "642-1",
+  "remote": "10020"
+ },
+ {
+  "local": "645-1",
+  "remote": "10021"
+ },
+ {
+  "local": "647-1",
+  "remote": "10024"
+ },
+ {
+  "local": "649-1",
+  "remote": "649-douse"
+ },
+ {
+  "local": "649-2",
+  "remote": "649-shock"
+ },
+ {
+  "local": "649-3",
+  "remote": "649-burn"
+ },
+ {
+  "local": "649-4",
+  "remote": "649-chill"
+ },
+ {
+  "local": "658-1",
+  "remote": "10117"
+ },
+ {
+  "local": "666-0",
+  "remote": "666-icy-snow"
+ },
+ {
+  "local": "666-1",
+  "remote": "666-polar"
+ },
+ {
+  "local": "666-10",
+  "remote": "666-high-plains"
+ },
+ {
+  "local": "666-11",
+  "remote": "666-sandstorm"
+ },
+ {
+  "local": "666-12",
+  "remote": "666-river"
+ },
+ {
+  "local": "666-13",
+  "remote": "666-monsoon"
+ },
+ {
+  "local": "666-14",
+  "remote": "666-savanna"
+ },
+ {
+  "local": "666-15",
+  "remote": "666-sun"
+ },
+ {
+  "local": "666-16",
+  "remote": "666-ocean"
+ },
+ {
+  "local": "666-17",
+  "remote": "666-jungle"
+ },
+ {
+  "local": "666-18",
+  "remote": "666-fancy"
+ },
+ {
+  "local": "666-19",
+  "remote": "666-poke-ball"
+ },
+ {
+  "local": "666-2",
+  "remote": "666-tundra"
+ },
+ {
+  "local": "666-3",
+  "remote": "666-continental"
+ },
+ {
+  "local": "666-4",
+  "remote": "666-garden"
+ },
+ {
+  "local": "666-5",
+  "remote": "666-elegant"
+ },
+ {
+  "local": "666-6",
+  "remote": "666"
+ },
+ {
+  "local": "666-7",
+  "remote": "666-modern"
+ },
+ {
+  "local": "666-8",
+  "remote": "666-marine"
+ },
+ {
+  "local": "666-9",
+  "remote": "666-archipelago"
+ },
+ {
+  "local": "669-1",
+  "remote": "669-yellow"
+ },
+ {
+  "local": "669-2",
+  "remote": "669-orange"
+ },
+ {
+  "local": "669-3",
+  "remote": "669-blue"
+ },
+ {
+  "local": "669-4",
+  "remote": "669-white"
+ },
+ {
+  "local": "670-1",
+  "remote": "670-yellow"
+ },
+ {
+  "local": "670-2",
+  "remote": "670-orange"
+ },
+ {
+  "local": "670-3",
+  "remote": "670-blue"
+ },
+ {
+  "local": "670-4",
+  "remote": "670-white"
+ },
+ {
+  "local": "670-5",
+  "remote": "10061"
+ },
+ {
+  "local": "671-1",
+  "remote": "671-yellow"
+ },
+ {
+  "local": "671-2",
+  "remote": "671-orange"
+ },
+ {
+  "local": "671-3",
+  "remote": "671-blue"
+ },
+ {
+  "local": "671-4",
+  "remote": "671-white"
+ },
+ {
+  "local": "676-1",
+  "remote": "676-heart"
+ },
+ {
+  "local": "676-2",
+  "remote": "676-star"
+ },
+ {
+  "local": "676-3",
+  "remote": "676-diamond"
+ },
+ {
+  "local": "676-4",
+  "remote": "676-debutante"
+ },
+ {
+  "local": "676-5",
+  "remote": "676-matron"
+ },
+ {
+  "local": "676-6",
+  "remote": "676-dandy"
+ },
+ {
+  "local": "676-7",
+  "remote": "676-la-reine"
+ },
+ {
+  "local": "676-8",
+  "remote": "676-kabuki"
+ },
+ {
+  "local": "676-9",
+  "remote": "676-pharaoh"
+ },
+ {
+  "local": "705-1",
+  "remote": "10241"
+ },
+ {
+  "local": "706-1",
+  "remote": "10242"
+ },
+ {
+  "local": "710-1",
+  "remote": "10027"
+ },
+ {
+  "local": "710-2",
+  "remote": "10028"
+ },
+ {
+  "local": "710-3",
+  "remote": "10029"
+ },
+ {
+  "local": "711-1",
+  "remote": "10030"
+ },
+ {
+  "local": "711-2",
+  "remote": "10031"
+ },
+ {
+  "local": "711-3",
+  "remote": "10032"
+ },
+ {
+  "local": "713-1",
+  "remote": "10243"
+ },
+ {
+  "local": "718-1",
+  "remote": "10181"
+ },
+ {
+  "local": "718-2",
+  "remote": "10181"
+ },
+ {
+  "local": "718-3",
+  "remote": "718"
+ },
+ {
+  "local": "720-1",
+  "remote": "10086"
+ },
+ {
+  "local": "724-1",
+  "remote": "10244"
+ },
+ {
+  "local": "74-1",
+  "remote": "10109"
+ },
+ {
+  "local": "741-1",
+  "remote": "10123"
+ },
+ {
+  "local": "741-2",
+  "remote": "10124"
+ },
+ {
+  "local": "741-3",
+  "remote": "10125"
+ },
+ {
+  "local": "744-1",
+  "remote": "10151"
+ },
+ {
+  "local": "745-1",
+  "remote": "10126"
+ },
+ {
+  "local": "745-2",
+  "remote": "10152"
+ },
+ {
+  "local": "75-1",
+  "remote": "10110"
+ },
+ {
+  "local": "76-1",
+  "remote": "10111"
+ },
+ {
+  "local": "77-1",
+  "remote": "10162"
+ },
+ {
+  "local": "773-1",
+  "remote": "773-fighting"
+ },
+ {
+  "local": "773-10",
+  "remote": "773-water"
+ },
+ {
+  "local": "773-11",
+  "remote": "773-grass"
+ },
+ {
+  "local": "773-12",
+  "remote": "773-electric"
+ },
+ {
+  "local": "773-13",
+  "remote": "773-psychic"
+ },
+ {
+  "local": "773-14",
+  "remote": "773-ice"
+ },
+ {
+  "local": "773-15",
+  "remote": "773-dragon"
+ },
+ {
+  "local": "773-16",
+  "remote": "773-dark"
+ },
+ {
+  "local": "773-17",
+  "remote": "773-fairy"
+ },
+ {
+  "local": "773-2",
+  "remote": "773-flying"
+ },
+ {
+  "local": "773-3",
+  "remote": "773-poison"
+ },
+ {
+  "local": "773-4",
+  "remote": "773-ground"
+ },
+ {
+  "local": "773-5",
+  "remote": "773-rock"
+ },
+ {
+  "local": "773-6",
+  "remote": "773-bug"
+ },
+ {
+  "local": "773-7",
+  "remote": "773-ghost"
+ },
+ {
+  "local": "773-8",
+  "remote": "773-steel"
+ },
+ {
+  "local": "773-9",
+  "remote": "773-fire"
+ },
+ {
+  "local": "774-10",
+  "remote": "10139"
+ },
+ {
+  "local": "774-11",
+  "remote": "10140"
+ },
+ {
+  "local": "774-12",
+  "remote": "10141"
+ },
+ {
+  "local": "774-13",
+  "remote": "10142"
+ },
+ {
+  "local": "774-7",
+  "remote": "10136"
+ },
+ {
+  "local": "774-8",
+  "remote": "10137"
+ },
+ {
+  "local": "774-9",
+  "remote": "10138"
+ },
+ {
+  "local": "78-1",
+  "remote": "10163"
+ },
+ {
+  "local": "79-1",
+  "remote": "10164"
+ },
+ {
+  "local": "80-2",
+  "remote": "10165"
+ },
+ {
+  "local": "801-1",
+  "remote": "10147"
+ },
+ {
+  "local": "83-1",
+  "remote": "10166"
+ },
+ {
+  "local": "849-1",
+  "remote": "10184"
+ },
+ {
+  "local": "854-1",
+  "remote": "854-antique"
+ },
+ {
+  "local": "855-1",
+  "remote": "855-antique"
+ },
+ {
+  "local": "869-0-1",
+  "remote": "869-vanilla-cream-berry-sweet"
+ },
+ {
+  "local": "869-0-2",
+  "remote": "869-vanilla-cream-love-sweet"
+ },
+ {
+  "local": "869-0-3",
+  "remote": "869-vanilla-cream-star-sweet"
+ },
+ {
+  "local": "869-0-4",
+  "remote": "869-vanilla-cream-clover-sweet"
+ },
+ {
+  "local": "869-0-5",
+  "remote": "869-vanilla-cream-flower-sweet"
+ },
+ {
+  "local": "869-0-6",
+  "remote": "869-vanilla-cream-ribbon-sweet"
+ },
+ {
+  "local": "869-1-0",
+  "remote": "869-ruby-cream-strawberry-sweet"
+ },
+ {
+  "local": "869-1-1",
+  "remote": "869-ruby-cream-berry-sweet"
+ },
+ {
+  "local": "869-1-2",
+  "remote": "869-ruby-cream-love-sweet"
+ },
+ {
+  "local": "869-1-3",
+  "remote": "869-ruby-cream-star-sweet"
+ },
+ {
+  "local": "869-1-4",
+  "remote": "869-ruby-cream-clover-sweet"
+ },
+ {
+  "local": "869-1-5",
+  "remote": "869-ruby-cream-flower-sweet"
+ },
+ {
+  "local": "869-1-6",
+  "remote": "869-ruby-cream-ribbon-sweet"
+ },
+ {
+  "local": "869-2-0",
+  "remote": "869-matcha-cream-strawberry-sweet"
+ },
+ {
+  "local": "869-2-1",
+  "remote": "869-matcha-cream-berry-sweet"
+ },
+ {
+  "local": "869-2-2",
+  "remote": "869-matcha-cream-love-sweet"
+ },
+ {
+  "local": "869-2-3",
+  "remote": "869-matcha-cream-star-sweet"
+ },
+ {
+  "local": "869-2-4",
+  "remote": "869-matcha-cream-clover-sweet"
+ },
+ {
+  "local": "869-2-5",
+  "remote": "869-matcha-cream-flower-sweet"
+ },
+ {
+  "local": "869-2-6",
+  "remote": "869-matcha-cream-ribbon-sweet"
+ },
+ {
+  "local": "869-3-0",
+  "remote": "869-mint-cream-strawberry-sweet"
+ },
+ {
+  "local": "869-3-1",
+  "remote": "869-mint-cream-berry-sweet"
+ },
+ {
+  "local": "869-3-2",
+  "remote": "869-mint-cream-love-sweet"
+ },
+ {
+  "local": "869-3-3",
+  "remote": "869-mint-cream-star-sweet"
+ },
+ {
+  "local": "869-3-4",
+  "remote": "869-mint-cream-clover-sweet"
+ },
+ {
+  "local": "869-3-5",
+  "remote": "869-mint-cream-flower-sweet"
+ },
+ {
+  "local": "869-3-6",
+  "remote": "869-mint-cream-ribbon-sweet"
+ },
+ {
+  "local": "869-4-0",
+  "remote": "869-lemon-cream-strawberry-sweet"
+ },
+ {
+  "local": "869-4-1",
+  "remote": "869-lemon-cream-berry-sweet"
+ },
+ {
+  "local": "869-4-2",
+  "remote": "869-lemon-cream-love-sweet"
+ },
+ {
+  "local": "869-4-3",
+  "remote": "869-lemon-cream-star-sweet"
+ },
+ {
+  "local": "869-4-4",
+  "remote": "869-lemon-cream-clover-sweet"
+ },
+ {
+  "local": "869-4-5",
+  "remote": "869-lemon-cream-flower-sweet"
+ },
+ {
+  "local": "869-4-6",
+  "remote": "869-lemon-cream-ribbon-sweet"
+ },
+ {
+  "local": "869-5-0",
+  "remote": "869-salted-cream-strawberry-sweet"
+ },
+ {
+  "local": "869-5-1",
+  "remote": "869-salted-cream-berry-sweet"
+ },
+ {
+  "local": "869-5-2",
+  "remote": "869-salted-cream-love-sweet"
+ },
+ {
+  "local": "869-5-3",
+  "remote": "869-salted-cream-star-sweet"
+ },
+ {
+  "local": "869-5-4",
+  "remote": "869-salted-cream-clover-sweet"
+ },
+ {
+  "local": "869-5-5",
+  "remote": "869-salted-cream-flower-sweet"
+ },
+ {
+  "local": "869-5-6",
+  "remote": "869-salted-cream-ribbon-sweet"
+ },
+ {
+  "local": "869-6-0",
+  "remote": "869-ruby-swirl-strawberry-sweet"
+ },
+ {
+  "local": "869-6-1",
+  "remote": "869-ruby-swirl-berry-sweet"
+ },
+ {
+  "local": "869-6-2",
+  "remote": "869-ruby-swirl-love-sweet"
+ },
+ {
+  "local": "869-6-3",
+  "remote": "869-ruby-swirl-star-sweet"
+ },
+ {
+  "local": "869-6-4",
+  "remote": "869-ruby-swirl-clover-sweet"
+ },
+ {
+  "local": "869-6-5",
+  "remote": "869-ruby-swirl-flower-sweet"
+ },
+ {
+  "local": "869-6-6",
+  "remote": "869-ruby-swirl-ribbon-sweet"
+ },
+ {
+  "local": "869-7-0",
+  "remote": "869-caramel-swirl-strawberry-sweet"
+ },
+ {
+  "local": "869-7-1",
+  "remote": "869-caramel-swirl-berry-sweet"
+ },
+ {
+  "local": "869-7-2",
+  "remote": "869-caramel-swirl-love-sweet"
+ },
+ {
+  "local": "869-7-3",
+  "remote": "869-caramel-swirl-star-sweet"
+ },
+ {
+  "local": "869-7-4",
+  "remote": "869-caramel-swirl-clover-sweet"
+ },
+ {
+  "local": "869-7-5",
+  "remote": "869-caramel-swirl-flower-sweet"
+ },
+ {
+  "local": "869-7-6",
+  "remote": "869-caramel-swirl-ribbon-sweet"
+ },
+ {
+  "local": "869-8-0",
+  "remote": "869-rainbow-swirl-strawberry-sweet"
+ },
+ {
+  "local": "869-8-1",
+  "remote": "869-rainbow-swirl-berry-sweet"
+ },
+ {
+  "local": "869-8-2",
+  "remote": "869-rainbow-swirl-love-sweet"
+ },
+ {
+  "local": "869-8-3",
+  "remote": "869-rainbow-swirl-star-sweet"
+ },
+ {
+  "local": "869-8-4",
+  "remote": "869-rainbow-swirl-clover-sweet"
+ },
+ {
+  "local": "869-8-5",
+  "remote": "869-rainbow-swirl-flower-sweet"
+ },
+ {
+  "local": "869-8-6",
+  "remote": "869-rainbow-swirl-ribbon-sweet"
+ },
+ {
+  "local": "88-1",
+  "remote": "10112"
+ },
+ {
+  "local": "89-1",
+  "remote": "10113"
+ },
+ {
+  "local": "892-1",
+  "remote": "10191"
+ },
+ {
+  "local": "893-1",
+  "remote": "10192"
+ },
+ {
+  "local": "901-1",
+  "remote": "10272"
+ },
+ {
+  "local": "905-1",
+  "remote": "10249"
+ },
+ {
+  "local": "925-0",
+  "remote": "10257"
+ },
+ {
+  "local": "925-1",
+  "remote": "925"
+ },
+ {
+  "local": "931-1",
+  "remote": "10260"
+ },
+ {
+  "local": "931-2",
+  "remote": "10261"
+ },
+ {
+  "local": "931-3",
+  "remote": "10262"
+ },
+ {
+  "local": "978-1",
+  "remote": "10258"
+ },
+ {
+  "local": "978-2",
+  "remote": "10259"
+ },
+ {
+  "local": "982-1",
+  "remote": "10255"
+ },
+ {
+  "local": "999-1",
+  "remote": "10263"
+ }
+]
