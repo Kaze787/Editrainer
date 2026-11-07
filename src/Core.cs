@@ -662,7 +662,7 @@ public sealed partial class SaveDocument
     PokedexEditor? pokedex;
     public TrainerEditor Trainer => trainer ??= new(Save);
     public PokedexEditor Pokedex => pokedex ??= new(Save);
-    public int ToolChangeCount => (trainer?.Changed == true ? 1 : 0) + (pokedex?.ChangeCount ?? 0);
+    public int ToolChangeCount => (trainer?.Changed == true ? 1 : 0) + (pokedex?.ChangeCount ?? 0) + ExtraChangeCount;
     public const int TeamSize = 6;
     public int BoxCount => Save.HasBox ? Save.BoxCount : 0;
     public int OpeningBox
@@ -696,7 +696,7 @@ public sealed partial class SaveDocument
         return Enumerable.Range(box * Save.BoxSlotCount, Save.BoxSlotCount).Select(i => boxed.GetValueOrDefault(i)).ToList();
     }
 
-    public string BoxLabel(int box) => $"{Rules.BoxName(box)}  ·  {BoxSlots(box).Count(p => p != null)} / {Save.BoxSlotCount}";
+    public string BoxLabel(int box) => $"{BoxName(box)}  ·  {BoxSlots(box).Count(p => p != null)} / {Save.BoxSlotCount}";
 
     bool IsMegaStone(ushort id) => Rules.IsZA && ItemStorage9ZA.IsMegaStone(id);
     bool IsOrb(ushort id) => Rules.IsZA && ItemStorage9ZA.IsOrb(id);
@@ -794,7 +794,7 @@ public sealed partial class SaveDocument
     }
 
     // What was held counts whoever has left since: their item came back to the bag with them.
-    int HeldCount(ushort id, bool original = false) => original ? loaded.Count(p => p.Baseline.HeldItem == id) : Pokemon.Count(p => p.Edit.HeldItem == id);
+    int HeldCount(ushort id, bool original = false) => original ? loaded.Concat(Withdrawn).Count(p => p.Baseline.HeldItem == id) : Pokemon.Count(p => p.Edit.HeldItem == id);
     int OriginalOwned(ushort id) => (Items.FirstOrDefault(i => i.Id == id)?.OriginalCount ?? 0)
         + (IsMegaStone(id) ? 0 : HeldCount(id, true));
 
@@ -965,7 +965,7 @@ public sealed partial class SaveDocument
         if (Money < 0 || Money > Rules.MaxMoney) return T("El dinero debe estar entre 0 y {0:N0}.", Rules.MaxMoney);
         if (Pokemon.Any(p => p.Edit.HeldItem != p.Baseline.HeldItem && p.Edit.HeldItem != 0 && !Items.Any(i => i.Id == p.Edit.HeldItem)))
             return T("Un Pokémon tiene preparado un objeto que no está disponible en esta partida.");
-        return Pokemon.Where(p => p.Dirty).Select(Catalog.Validate).FirstOrDefault(error => error != null) ?? LayoutError() ?? ValidateSupply() ?? Za?.Validate() ?? trainer?.Validate();
+        return Pokemon.Where(p => p.Dirty).Select(Catalog.Validate).FirstOrDefault(error => error != null) ?? LayoutError() ?? ValidateSupply() ?? Za?.Validate() ?? trainer?.Validate() ?? ValidateExtras();
     }
 
     public byte[] BuildOutput() => ZaSave is { } za ? BuildZA(za) : Build();
@@ -982,7 +982,7 @@ public sealed partial class SaveDocument
         if (MoneyChanged) output.Money = (uint)Money;
         if (effectiveItems.Count != 0) WriteBag(output, effectiveItems);
         WriteStorage(output);
-        trainer?.WriteTo(output); pokedex?.WriteTo(output);
+        trainer?.WriteTo(output); pokedex?.WriteTo(output); WriteExtras(output);
         var bytes = output.Write().ToArray();
         if (bytes.Length != OriginalBytes.Length) throw new InvalidOperationException(T("Cambió el tamaño de la partida."));
         var reopened = Reopen(bytes);
@@ -1004,6 +1004,7 @@ public sealed partial class SaveDocument
     {
         if (trainer?.Matches(reopened) == false) throw new InvalidOperationException(T("No se pudieron comprobar los datos del entrenador después de guardar."));
         if (pokedex?.FirstDifference(reopened) is { } species) throw new InvalidOperationException(T("No se pudo comprobar {0} después de guardar.", Catalog.Names.specieslist[species]));
+        CheckExtras(reopened);
     }
 
     void WriteBag(SaveFile output, Dictionary<ushort, int> changes)
@@ -1055,7 +1056,7 @@ public sealed partial class SaveDocument
         }
         WriteStorage(output);
         Za?.ApplyTo(output);
-        trainer?.WriteTo(output); pokedex?.WriteTo(output);
+        trainer?.WriteTo(output); pokedex?.WriteTo(output); WriteExtras(output);
         var bytes = output.Write().ToArray();
         if (bytes.Length != OriginalBytes.Length || !SwishCrypto.GetIsHashValid(bytes))
             throw new InvalidOperationException(T("No se pudo verificar la integridad de la partida editada."));
@@ -1099,6 +1100,7 @@ public sealed partial class SaveDocument
         if (trainer?.ChangesStatus == true) AllowBlock(original.MyStatus.Data);
         if (trainer?.ChangesClock == true) allowedBlocks.Add(SaveBlockAccessor9ZA.KPlayedSeconds);
         if (pokedex?.ChangeCount > 0) AllowBlock(original.Zukan.Data);
+        if (boxNames?.ChangeCount > 0) AllowBlock(original.BoxLayout.Data);
         for (int i = 0; i < original.AllBlocks.Count; i++)
         {
             var a = original.AllBlocks[i]; var b = reopened.AllBlocks[i];
@@ -1135,6 +1137,7 @@ public sealed partial class SaveDocument
             moved = Pokemon.Where(x => x.Moved && !x.IsNew).Select(e => new { e.DisplayName, e.SpeciesName, before = Rules.PlaceName(e.Origin!.Value), after = e.Location }),
             added = Pokemon.Where(x => x.IsNew).Select(e => new { e.DisplayName, e.SpeciesName, e.Location }),
             removed = Deleted.Select(e => new { e.DisplayName, e.SpeciesName, Location = Rules.PlaceName(e.Origin!.Value) }),
+            extras = ExtraSummary(),
         }, new JsonSerializerOptions { WriteIndented = true }));
         if (Hash(File.ReadAllBytes(backupFile)) != OriginalHash) throw new IOException(T("No se pudo verificar el respaldo."));
         var temp = destination + ".editrainer-" + Guid.NewGuid().ToString("N") + ".tmp";

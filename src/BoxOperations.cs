@@ -266,7 +266,7 @@ public sealed partial class SaveDocument
         var places = Enumerable.Range(first, Save.BoxSlotCount).Where(i => !taken.Contains(i)).ToList();
         var sorted = Sorted(boxed.Except(staying), order).ToList();
         Change(() => { for (int i = 0; i < sorted.Count; i++) sorted[i].Index = places[i]; });
-        return T("{0} ordenada. Guarda para aplicarlo.", Rules.BoxName(box));
+        return T("{0} ordenada. Guarda para aplicarlo.", BoxName(box));
     }
 
     static IEnumerable<PokemonEntry> Sorted(IEnumerable<PokemonEntry> group, BoxOrder order) => order switch {
