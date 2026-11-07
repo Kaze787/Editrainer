@@ -10,6 +10,7 @@
     <Compile Include="../src/Strings.cs" Link="Strings.cs" />
     <Compile Include="../src/ZaTools.cs" Link="ZaTools.cs" />
     <Compile Include="../src/TrainerDex.cs" Link="TrainerDex.cs" />
+    <Compile Include="../src/DexTables.cs" Link="DexTables.cs" />
     <Compile Include="../src/GameExtras.cs" Link="GameExtras.cs" />
     <Reference Include="PKHeX.Core"><HintPath>../lib/PKHeX.Core.dll</HintPath></Reference>
     <Reference Include="PKHeX.Core.AutoMod"><HintPath>../lib/PKHeX.Core.AutoMod.dll</HintPath></Reference>

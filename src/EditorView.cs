@@ -837,6 +837,7 @@ public sealed partial class EditorView : UserControl
                 Check(cut == null, $"Nothing is cut off on the right of {dialog.Text} ({cut?.GetType().Name} {cut?.Text})");
             }
         }
+        using (var dialog = OffScreen(new PokedexDialog(document!))) dialog.RunLayoutChecks(Check, sizeLabel);
         CheckExtraLayouts(Check, sizeLabel);
     }
 
@@ -1270,6 +1271,8 @@ public sealed partial class EditorView : UserControl
         void Check(bool ok, string description) { if (!ok) throw new Exception(description); checks.Add(description); }
         Check(document != null && Strings.Current.Code == expected.Language && Theme.IsDark == expected.Dark, "The window opens in the chosen language and theme");
         SettingsDialog.RunChecks(expected, Check);
+        // The interaction checks need a real Z-A save, and this is where every other game's Pokédex gets used.
+        if (document!.Pokedex.CanClear) using (var dialog = OffScreen(new PokedexDialog(document))) dialog.RunInteractionChecks(document, Check);
         CheckZaTools(Check);
         CheckLayout(Check, "normal window");
         Window.Size = Window.MinimumSize; CheckLayout(Check, "minimum window");

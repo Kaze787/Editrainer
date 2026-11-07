@@ -592,6 +592,89 @@ static class AllGames
         Check(label, SaveDocument.Open(copy).Save.OT == name, "el guardado real cambia al entrenador");
     }
 
+    // What each game offers, by name and size. Sizes are the official ones, and a list that loses a species can't hide here.
+    static (string Name, int Size)[] ExpectedDexLists(GameVersion version)
+    {
+        const string national = PokedexEditor.National, all = PokedexEditor.AllSpecies;
+        return version switch {
+            GameVersion.RD or GameVersion.BU or GameVersion.GN or GameVersion.YW or GameVersion.RBY => [("Kanto", 151)],
+            GameVersion.GD or GameVersion.SI or GameVersion.C or GameVersion.GS or GameVersion.GSC => [("Johto", 251), (national, 251)],
+            GameVersion.R or GameVersion.S or GameVersion.E => [("Hoenn", 202), (national, 386)],
+            GameVersion.FR or GameVersion.LG => [("Kanto", 151), (national, 386)],
+            GameVersion.D or GameVersion.P => [("Sinnoh", 151), (national, 493)],
+            GameVersion.Pt => [("Sinnoh", 210), (national, 493)],
+            GameVersion.HG or GameVersion.SS => [("Johto", 256), (national, 493)],
+            GameVersion.B or GameVersion.W => [("Teselia", 156), (national, 649)],
+            GameVersion.B2 or GameVersion.W2 => [("Teselia", 301), (national, 649)],
+            GameVersion.X or GameVersion.Y => [("Kalos Centro", 153), ("Kalos Costa", 153), ("Kalos Montaña", 151), (national, 721)],
+            GameVersion.OR or GameVersion.AS => [("Hoenn", 211), (national, 721)],
+            GameVersion.SN or GameVersion.MN => [("Alola", 302), ("Melemele", 120), ("Akala", 130), ("Ula-Ula", 130), ("Poni", 100), (all, 802)],
+            GameVersion.US or GameVersion.UM => [("Alola", 403), ("Melemele", 150), ("Akala", 160), ("Ula-Ula", 160), ("Poni", 130), (all, 807)],
+            GameVersion.GP or GameVersion.GE => [("Kanto", 153)],
+            GameVersion.SW or GameVersion.SH => [("Galar", 400), ("Isla de la Armadura", 211), ("Nieves de la Corona", 210)],
+            // The game's own table leaves Manaphy out of Sinnoh here, though it closes that Pokédex in Diamond and Pearl.
+            GameVersion.BD or GameVersion.SP => [("Sinnoh", 150), (national, 493)],
+            GameVersion.PLA => [("Hisui", 242)],
+            GameVersion.SL or GameVersion.VL => [("Paldea", 400), ("Noroteo", 200), ("Academia Arándano", 243)],
+            GameVersion.ZA => [("Luminalia", 232), ("Luminalia Dimensional", 132)],
+            _ => throw new ArgumentOutOfRangeException(nameof(version), version, null),
+        };
+    }
+
+    // The lists are views of the same marks: counts answer to each one, and marking one reaches nothing else.
+    static void DexLists(GameVersion version, string label, SaveDocument doc, string work)
+    {
+        var dex = doc.Pokedex;
+        Check(label, dex.Lists.Select(list => (list.Name, list.Entries.Count)).SequenceEqual(ExpectedDexLists(version)), "ofrece sus Pokédex", string.Join(", ", dex.Lists.Select(list => $"{list.Name} {list.Entries.Count}")));
+        var known = dex.Entries.ToHashSet();
+        Check(label, dex.Lists.SelectMany(list => list.Entries).Select(entry => entry.Species).ToHashSet().SetEquals(known), "entre todas llegan a cada especie");
+        Check(label, dex.Lists.Select(list => list.Name).Distinct().Count() == dex.Lists.Count, "no repite nombres");
+        foreach (var list in dex.Lists)
+        {
+            string where = list.Name;
+            // Victini is number 000 in Unova.
+            int first = list.Name == "Teselia" ? 0 : 1;
+            int size = list.Entries.Count;
+            var members = list.Entries.Select(entry => entry.Species).ToHashSet();
+            Check(label, list.Entries.Select(entry => entry.Number).SequenceEqual(Enumerable.Range(first, size)), "numera de seguido", where);
+            Check(label, members.Count == size, "no repite especies", where);
+            Check(label, members.All(known.Contains), "solo lista especies de la Pokédex", where);
+            Check(label, Strings.Has(list.Name) && PokedexEditor.ListNames.Contains(list.Name), "su nombre está traducido", where);
+
+            int seenBefore = list.Entries.Count(entry => dex.Original(entry.Species).Seen), caughtBefore = list.Entries.Count(entry => dex.Original(entry.Species).Caught);
+            Check(label, dex.SeenIn(list) == seenBefore && dex.CaughtIn(list) == caughtBefore, "cuenta lo que ya hay", where);
+            var fresh = list.Entries.Select(entry => entry.Species).Where(species => !dex.Original(species).Seen).ToList();
+            ushort onlySeen = fresh[0], alsoCaught = fresh[^1];
+            dex.Set(onlySeen, true, false); dex.Set(alsoCaught, true, true);
+            Check(label, dex.SeenIn(list) == seenBefore + 2 && dex.CaughtIn(list) == caughtBefore + 1, "sus contadores siguen a las marcas", where);
+            foreach (var other in dex.Lists)
+            {
+                int inside = new[] { onlySeen, alsoCaught }.Count(species => other.Entries.Any(entry => entry.Species == species));
+                Check(label, dex.SeenIn(other) == other.Entries.Count(entry => dex.Original(entry.Species).Seen) + inside, "una marca cuenta en cada Pokédex con esa especie", other.Name);
+            }
+            dex.Reset();
+
+            dex.MarkAll(list, caught: false);
+            Check(label, dex.SeenIn(list) == size && dex.CaughtIn(list) == caughtBefore, "marca toda esa Pokédex como vista", where);
+            dex.MarkAll(list, caught: true);
+            Check(label, dex.CaughtIn(list) == size, "marca toda esa Pokédex como capturada", where);
+            Check(label, dex.Changes.All(change => members.Contains(change.Species)), "marcarla no toca especies de fuera", where);
+            dex.Reset();
+        }
+
+        // Through a real file, the first list only.
+        var regional = dex.Lists[0];
+        var chosen = regional.Entries.Select(entry => entry.Species).ToHashSet();
+        dex.MarkAll(regional, caught: true);
+        var path = Path.Combine(work, version + ".dex.list.sav");
+        File.WriteAllBytes(path, doc.BuildOutput());
+        dex.Reset();
+        var read = SaveDocument.Open(path).Pokedex;
+        Check(label, read.Lists.Select(list => list.Name).SequenceEqual(dex.Lists.Select(list => list.Name)), "reabre con las mismas Pokédex");
+        Check(label, read.CaughtIn(read.Lists[0]) == regional.Entries.Count, "guarda la Pokédex marcada", $"{read.CaughtIn(read.Lists[0])}/{regional.Entries.Count}");
+        Check(label, read.Entries.Where(species => !chosen.Contains(species)).All(species => read.Get(species) == dex.Original(species)), "guardarla no marca especies de fuera");
+    }
+
     // Seen and caught through a real file: one species at a time, there and back, then all of them.
     static void Pokedex(GameVersion version, string label, string work)
     {
@@ -606,6 +689,7 @@ static class AllGames
         Check(label, dex.Entries.All(s => s != 0 && s <= doc.Save.MaxSpeciesID), "lista especies que existen");
         Check(label, dex.Entries.All(s => Catalog.Names.specieslist[s].Trim().Length > 0), "nombra las especies");
         Check(label, !doc.HasChanges && doc.BuildOutput().SequenceEqual(doc.OriginalBytes), "abrir la Pokédex no altera el archivo");
+        DexLists(version, label, doc, work);
 
         ushort seen = dex.Entries[0], caught = Middle(dex), both = Middle(dex, 1), untouched = Middle(dex, 2);
         dex.Set(seen, true, false);

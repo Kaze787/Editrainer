@@ -136,13 +136,27 @@ public sealed record DexState(bool Seen, bool Caught);
 
 public sealed record DexChange(ushort Species, DexState Before, DexState After);
 
+/// <summary>A species and the number one Pokédex gives it.</summary>
+public readonly record struct DexEntry(int Number, ushort Species);
+
+/// <summary>
+/// One of a game's Pokédexes, in its order. Marks belong to the species, so choosing one only changes what is looked at.
+/// <see cref="Name"/> is the Spanish key of its text.
+/// </summary>
+public sealed record DexList(string Name, IReadOnlyList<DexEntry> Entries)
+{
+    /// <summary>A second column of national numbers would repeat the first.</summary>
+    public bool HasNationalNumbers => Entries.All(entry => entry.Number == entry.Species);
+}
+
 /// <summary>
 /// Seen and caught, per species, as pending changes. <see cref="SaveFile.SetSeen"/> and <see cref="SaveFile.SetCaught"/>
 /// do nothing from Gen 4 on, so each game gets here what PKHeX or the game itself would write there.
 /// </summary>
 public sealed class PokedexEditor
 {
-    const int LumioseDexSize = 232;
+    public const string National = "Nacional", AllSpecies = "Todas las especies";
+    const int LumioseDexSize = 232, KantoDexSize = 151;
     const uint NotShinyPid = 0x12345678;
     readonly SaveFile save;
     readonly Dictionary<ushort, DexState> originals = [];
@@ -153,10 +167,16 @@ public sealed class PokedexEditor
         this.save = save;
         Entries = save.HasPokeDex ? SpeciesIn(save).Order().ToList() : [];
         foreach (var species in Entries) originals[species] = Read(save, species);
+        Lists = Entries.Count == 0 ? [] : ListsIn(save, Entries);
     }
 
     /// <summary>Every species this save's Pokédex has room for, in national order.</summary>
     public IReadOnlyList<ushort> Entries { get; }
+    /// <summary>The Pokédexes this save's game shows, the regional ones first.</summary>
+    public IReadOnlyList<DexList> Lists { get; }
+    /// <summary>The game has one list, with the same numbers as the National Pokédex.</summary>
+    public bool RegionalIsNational => Lists.Count == 1 && Lists[0].HasNationalNumbers;
+    public bool HasAllSpeciesList => Lists.Any(list => list.Name == AllSpecies);
     public bool CanView => Entries.Count != 0;
     // Scarlet and Violet moved their Pokédex in 2.0.1, and no test file can have the older one.
     public bool CanEdit => CanView && (save is not SAV9SV sv || sv.Zukan.GetRevision() != 0);
@@ -165,6 +185,8 @@ public sealed class PokedexEditor
     public int ChangeCount => changes.Count;
     public int SeenCount => Entries.Count(species => Get(species).Seen);
     public int CaughtCount => Entries.Count(species => Get(species).Caught);
+    public int SeenIn(DexList list) => list.Entries.Count(entry => Get(entry.Species).Seen);
+    public int CaughtIn(DexList list) => list.Entries.Count(entry => Get(entry.Species).Caught);
     public IEnumerable<DexChange> Changes => changes.OrderBy(c => c.Key).Select(c => new DexChange(c.Key, originals[c.Key], c.Value));
     public DexState Get(ushort species) => changes.GetValueOrDefault(species) ?? originals[species];
     public DexState Original(ushort species) => originals[species];
@@ -180,9 +202,13 @@ public sealed class PokedexEditor
         else changes[species] = wanted;
     }
 
-    public void MarkAll(bool caught)
+    public void MarkAll(bool caught) => Mark(Entries, caught);
+
+    public void MarkAll(DexList list, bool caught) => Mark(list.Entries.Select(entry => entry.Species), caught);
+
+    void Mark(IEnumerable<ushort> species, bool caught)
     {
-        foreach (var species in Entries) Set(species, true, caught || Get(species).Caught);
+        foreach (var one in species) Set(one, true, caught || Get(one).Caught);
     }
 
     public void Reset() => changes.Clear();
@@ -199,6 +225,84 @@ public sealed class PokedexEditor
             _ => inGame,
         };
     }
+
+    /// <summary>Every name a list can have, for measuring them in each language.</summary>
+    public static IEnumerable<string> ListNames =>
+    [
+        "Kanto", "Johto", "Hoenn", "Sinnoh", "Teselia", "Kalos Centro", "Kalos Costa", "Kalos Montaña", "Alola", "Melemele", "Akala", "Ula-Ula", "Poni",
+        "Galar", "Isla de la Armadura", "Nieves de la Corona", "Hisui", "Paldea", "Noroteo", "Academia Arándano", "Luminalia", "Luminalia Dimensional", National, AllSpecies,
+    ];
+
+    // Gen 7 has no National Pokédex, yet it keeps marks for what arrives from elsewhere: the last list leaves none of them out of reach.
+    static List<DexList> ListsIn(SaveFile save, IReadOnlyList<ushort> entries)
+    {
+        var known = entries.ToHashSet();
+        var national = new DexList(National, entries.Select(species => new DexEntry(species, species)).ToList());
+        DexList Table(string name, ushort[] species, int first = 1) => new(name, species.Select((one, i) => new DexEntry(i + first, one)).Where(entry => known.Contains(entry.Species)).ToList());
+        DexList Indexed(string name, Func<ushort, int> number) => new(name, entries.Select(species => new DexEntry(number(species), species)).Where(entry => entry.Number != 0).OrderBy(entry => entry.Number).ToList());
+        DexList Kanto() => new("Kanto", entries.Take(KantoDexSize).Select(species => new DexEntry(species, species)).ToList());
+        List<DexList> lists = save switch {
+            SAV1 => [Kanto()],
+            SAV2 => [Table("Johto", DexTables.JohtoGS), national],
+            SAV3RS or SAV3E => [Table("Hoenn", DexTables.HoennRS), national],
+            SAV3FRLG => [Kanto(), national],
+            SAV4DP => [Table("Sinnoh", DexTables.SinnohDP), national],
+            SAV4Pt => [Table("Sinnoh", DexTables.SinnohPt), national],
+            SAV4HGSS => [Table("Johto", DexTables.JohtoHGSS), national],
+            // Unova is the one region that numbers from zero: Victini comes before the first partner.
+            SAV5BW => [Table("Teselia", DexTables.UnovaBW, 0), national],
+            SAV5B2W2 => [Table("Teselia", DexTables.UnovaB2W2, 0), national],
+            SAV6XY => [Table("Kalos Centro", DexTables.KalosCentral), Table("Kalos Costa", DexTables.KalosCoastal), Table("Kalos Montaña", DexTables.KalosMountain), national],
+            SAV6AO => [Table("Hoenn", DexTables.HoennORAS), national],
+            SAV7SM => [Table("Alola", DexTables.AlolaSM), Table("Melemele", DexTables.MelemeleSM), Table("Akala", DexTables.AkalaSM), Table("Ula-Ula", DexTables.UlaUlaSM), Table("Poni", DexTables.PoniSM)],
+            SAV7USUM => [Table("Alola", DexTables.AlolaUSUM), Table("Melemele", DexTables.MelemeleUSUM), Table("Akala", DexTables.AkalaUSUM), Table("Ula-Ula", DexTables.UlaUlaUSUM), Table("Poni", DexTables.PoniUSUM)],
+            // Meltan and Melmetal close the list.
+            SAV7b => [new("Kanto", entries.Select((species, i) => new DexEntry(i + 1, species)).ToList())],
+            SAV8SWSH s => Galar(s, Indexed),
+            SAV8BS s => [Indexed("Sinnoh", species => s.Personal[species].PokeDexIndex), national],
+            SAV8LA => [Indexed("Hisui", species => PokedexSave8a.GetDexIndex(PokedexType8a.Hisui, species))],
+            SAV9SV s => Paldea(s, Indexed),
+            SAV9ZA s => s.SaveRevision == 0 ? [Lumiose(s, Indexed)] : [Lumiose(s, Indexed), Hyperspace(s, Indexed)],
+            _ => [national],
+        };
+        var listed = lists.SelectMany(list => list.Entries).Select(entry => entry.Species).ToHashSet();
+        if (!known.SetEquals(listed)) lists.Add(new(AllSpecies, national.Entries));
+        return lists;
+    }
+
+    // What a save holds depends on the DLC it has played, so each list is there only if the save has room for it.
+    static List<DexList> Galar(SAV8SWSH save, Func<string, Func<ushort, int>, DexList> indexed)
+    {
+        int revision = save.Zukan.GetRevision();
+        var lists = new List<DexList> { indexed("Galar", species => save.Personal[species].PokeDexIndex) };
+        if (revision >= 1) lists.Add(indexed("Isla de la Armadura", species => save.Personal[species].ArmorDexIndex));
+        if (revision >= 2) lists.Add(indexed("Nieves de la Corona", species => save.Personal[species].CrownDexIndex));
+        return lists;
+    }
+
+    static List<DexList> Paldea(SAV9SV save, Func<string, Func<ushort, int>, DexList> indexed)
+    {
+        var lists = new List<DexList> { indexed("Paldea", species => FormIndex(save, species, info => info.DexPaldea)) };
+        if (save.SaveRevision >= 1) lists.Add(indexed("Noroteo", species => FormIndex(save, species, info => info.DexKitakami)));
+        if (save.SaveRevision >= 2) lists.Add(indexed("Academia Arándano", species => FormIndex(save, species, info => info.DexBlueberry)));
+        return lists;
+    }
+
+    // A regional form can hold the number its species' first form lacks.
+    static int FormIndex(SAV9SV save, ushort species, Func<PersonalInfo9SV, int> index)
+    {
+        byte forms = save.Personal.GetFormEntry(species, 0).FormCount;
+        for (byte form = 0; form <= forms; form++)
+            if (index(save.Personal.GetFormEntry(species, form)) is var number and not 0) return number;
+        return 0;
+    }
+
+    // The two share one run of numbers in the data, and the game starts the second over at 1.
+    static DexList Lumiose(SAV9ZA save, Func<string, Func<ushort, int>, DexList> indexed) =>
+        indexed("Luminalia", species => save.Personal[species].DexIndex is var index and <= LumioseDexSize ? index : 0);
+
+    static DexList Hyperspace(SAV9ZA save, Func<string, Func<ushort, int>, DexList> indexed) =>
+        indexed("Luminalia Dimensional", species => Math.Max(save.Personal[species].DexIndex - LumioseDexSize, 0));
 
     // The forms a save can register. Noble Pokémon don't count for research.
     static IEnumerable<byte> Forms(SaveFile save, ushort species)

@@ -6,6 +6,7 @@
 - Generación de Pokémon legales: motor **Auto Legality Mod** de PKHeX-Plugins, architdate, santacrab2 y colaboradores. Versión 26.08.27, commit `90410f2`, sin modificar. Licencia MIT, aviso completo al final de este archivo. https://github.com/santacrab2/PKHeX-Plugins
 - Regalos recibidos: el formato de los registros de Espada, Escudo, Leyendas: Arceus, Escarlata y Púrpura se basa en **PKHeX-Avalonia**, que lo toma de la investigación de la comunidad.
 - Sprites e ilustraciones descargados del repositorio **PokeAPI/sprites**. https://github.com/PokeAPI/sprites
+- Orden de las Pokédex regionales de la Gen 2 a la 7, que PKHeX no incluye: **PokéAPI**. https://pokeapi.co
 - Créditos de los ilustradores y creadores de sprites: `Assets/SPRITES-CREDITS.md`.
 - Pokémon y todos los personajes e imágenes relacionados pertenecen a Nintendo, Creatures y GAME FREAK / The Pokémon Company. Esta es una herramienta personal independiente.
 

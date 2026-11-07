@@ -244,14 +244,34 @@ Story progress, event flags, Mable's research, your position and your trainer pi
 - Changing the name or the IDs makes the game treat the Pokémon you already have as received from another trainer.
 - Colosseum, XD and box-only saves don't have this window.
 
-**Pokédex** lists every species the open game can register. Search by name or number, tick **Seen** or **Caught**, or use **Mark all seen** and **Mark all caught**.
+**Pokédex** shows the open game's Pokédexes the way the game orders them. Pick one at the top: each row has its number in that Pokédex and the national number beside it. Search by name or by either number, tick **Seen** or **Caught**, or use **Mark all seen** and **Mark all caught**. The counts and both **Mark all** buttons apply to the Pokédex you picked.
 
+| Game | Pokédexes |
+| --- | --- |
+| Red, Blue, Yellow | Kanto, which is also the National one |
+| Gold, Silver, Crystal, HeartGold, SoulSilver | Johto and National |
+| Ruby, Sapphire, Emerald, Omega Ruby, Alpha Sapphire | Hoenn and National |
+| FireRed, LeafGreen | Kanto and National |
+| Diamond, Pearl, Platinum, Brilliant Diamond, Shining Pearl | Sinnoh and National |
+| Black, White, Black 2, White 2 | Unova and National |
+| X, Y | Central, Coastal and Mountain Kalos, and National |
+| Sun, Moon, Ultra Sun, Ultra Moon | Alola, its four islands and All species |
+| Let's Go Pikachu, Let's Go Eevee | Kanto, with Meltan and Melmetal at the end |
+| Sword, Shield | Galar, Isle of Armor and Crown Tundra |
+| Legends: Arceus | Hisui |
+| Scarlet, Violet | Paldea, Kitakami and Blueberry Academy |
+| Legends: Z-A | Lumiose and Hyperspace Lumiose, the Mega Dimension's Pokédex |
+
+- Marks belong to the species. One seen or caught in a Pokédex is seen or caught in every Pokédex it appears in, so picking another list only changes what you look at.
+- A DLC Pokédex is offered when the save has room for it, so a save that never had the DLC doesn't list it.
+- Sun, Moon, Ultra Sun and Ultra Moon have no National Pokédex, yet they keep marks for species from elsewhere. **All species** gathers those, in national order.
+- Unova numbers from 000, because Victini comes before the first partner.
+- In Brilliant Diamond and Shining Pearl the Sinnoh list has 150 entries: the game's own table leaves Manaphy out, and you'll find it in National.
 - A caught Pokémon counts as seen, and clearing **Seen** also clears **Caught**.
 - Marking registers the species and keeps the forms, shinies and languages you already have. It isn't meant to complete them: how many forms it adds depends on the game.
 - A game can still hide what you marked until you reach that point of the story, such as species outside the regional Pokédex before you get the National one.
 - **Legends: Arceus** only adds marks, because its progress comes from research: what's already registered can't be cleared.
 - **Scarlet and Violet** saves from before version 2.0.1 keep the Pokédex in an older format. You can look at it, but not change it.
-- In **Legends: Z-A** without the DLC the list is the Lumiose Pokédex.
 - Colosseum, XD and box-only saves don't have a Pokédex.
 
 ## Game extras
