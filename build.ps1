@@ -12,7 +12,7 @@ if (Test-Path -LiteralPath $package) { Remove-Item -LiteralPath $package -Recurs
 $packedAssets = New-Item -ItemType Directory -Path (Join-Path $package 'Assets')
 $packedTools = New-Item -ItemType Directory -Path (Join-Path $package 'build-tools')
 Get-ChildItem -LiteralPath $outputDir -File | Where-Object Extension -ne '.pdb' | Copy-Item -Destination $package
-'README.md', 'LICENSE', 'CREDITOS.md', 'Download-Images.bat' | ForEach-Object { Copy-Item -LiteralPath (Join-Path $PSScriptRoot $_) -Destination $package }
+'README.md', 'docs\GUIDE.md', 'LICENSE', 'CREDITOS.md', 'Download-Images.bat' | ForEach-Object { Copy-Item -LiteralPath (Join-Path $PSScriptRoot $_) -Destination $package }
 'app.ico', 'app.png', 'SPRITES-CREDITS.md' | ForEach-Object { Copy-Item -LiteralPath (Join-Path $PSScriptRoot "Assets\$_") -Destination $packedAssets }
 'Download-Images.ps1', 'species.json', 'form-sprites.json' | ForEach-Object { Copy-Item -LiteralPath (Join-Path $PSScriptRoot "build-tools\$_") -Destination $packedTools }
 $zip = Join-Path $PSScriptRoot 'Editrainer-windows.zip'
