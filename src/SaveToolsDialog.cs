@@ -44,11 +44,30 @@ abstract class ToolWindow : Form
         Controls.Add(body);
     }
 
-    /// <summary>Over the corner of the editor that hides the least of it, so what a click selects there can be seen.</summary>
-    public void ShowBeside(Form editor)
+    /// <summary>
+    /// Over the corner of the editor that hides the least of it, so what a click selects there can be seen, and
+    /// shrunk and moved as needed to keep every button on screen. An editor that is off the screen altogether, as
+    /// in the automatic checks, takes the tool with it. If even the smallest size doesn't fit, the title bar stays in reach.
+    /// </summary>
+    internal static Rectangle Place(Rectangle editor, Size size, Size smallest, Rectangle screen)
+    {
+        if (!screen.IntersectsWith(editor)) return new(editor.Right - size.Width - EditorMargin, editor.Bottom - size.Height - EditorMargin, size.Width, size.Height);
+        int width = Math.Max(smallest.Width, Math.Min(size.Width, screen.Width));
+        int height = Math.Max(smallest.Height, Math.Min(size.Height, screen.Height));
+        int left = Math.Max(screen.Left, Math.Min(editor.Right - width - EditorMargin, screen.Right - width));
+        int top = Math.Max(screen.Top, Math.Min(editor.Bottom - height - EditorMargin, screen.Bottom - height));
+        return new(left, top, width, height);
+    }
+
+    internal void MoveBeside(Form editor)
     {
         StartPosition = FormStartPosition.Manual;
-        Location = new Point(editor.Right - Width - EditorMargin, editor.Bottom - Height - EditorMargin);
+        Bounds = Place(editor.Bounds, Size, MinimumSize, Screen.FromControl(editor).WorkingArea);
+    }
+
+    public void ShowBeside(Form editor)
+    {
+        MoveBeside(editor);
         Show(editor);
     }
 

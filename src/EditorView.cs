@@ -900,6 +900,7 @@ public sealed class EditorView : UserControl
         string opened = document!.FilePath;
         scratchBackups = Path.Combine(scratch, "Backups");
         Check(toolsMenu.Items.Count >= 4, "The tools menu offers the whole-save tools");
+        CheckToolPlacement(Check);
 
         var illegal = document.Pokemon[4];
         Pick(illegal); levelBox.Value = 1;
@@ -997,6 +998,29 @@ public sealed class EditorView : UserControl
         document = keep;
         LoadFile(opened); scratchBackups = null;
         Check(document!.FilePath == opened && !document.HasChanges, "The checks leave the app on the save they started from");
+    }
+
+    // With rectangles and with windows that are never shown: a check must not put anything on the user's screen.
+    void CheckToolPlacement(Action<bool, string> Check)
+    {
+        Size size = new(1060, 580), smallest = new(760, 420);
+        var screen = new Rectangle(0, 0, 1920, 1040);
+        Rectangle Placed(Rectangle editor, Rectangle area) => ToolWindow.Place(editor, size, smallest, area);
+        Check(Placed(new(100, 100, 1280, 900), screen) == new Rectangle(296, 396, 1060, 580), "A tool sits over the bottom right corner of the editor");
+        Check(screen.Contains(Placed(new(1700, 900, 1280, 900), screen)), "An editor hanging off the bottom right keeps its tool on screen");
+        Check(screen.Contains(Placed(new(-1100, -700, 1280, 900), screen)), "An editor hanging off the top left keeps its tool on screen");
+        var leftMonitor = new Rectangle(-1920, -200, 1920, 1080);
+        Check(leftMonitor.Contains(Placed(new(-300, 700, 1280, 900), leftMonitor)), "A monitor with negative coordinates works the same");
+        var small = new Rectangle(0, 0, 900, 500);
+        Check(Placed(new(0, 0, 1200, 720), small) == small, "A tool shrinks to fit a small screen");
+        var tiny = new Rectangle(10, 20, 640, 360);
+        Check(Placed(tiny, tiny) == new Rectangle(10, 20, 760, 420), "Past its smallest size a tool keeps its title bar in reach");
+        Check(Placed(new(-16000, -16000, 1280, 900), screen).Right < 0, "An editor off the screen takes its tool with it");
+        var area = Screen.FromControl(Window).WorkingArea;
+        using var corner = new Form { StartPosition = FormStartPosition.Manual, Bounds = new Rectangle(area.Right - 300, area.Bottom - 200, 1200, 720) };
+        using var report = new BoxReportWindow(document!, ShowPokemon);
+        report.MoveBeside(corner);
+        Check(!corner.Visible && !report.Visible && Screen.FromControl(report).WorkingArea.Contains(report.Bounds), "A tool from an editor in the corner of the working area stays whole on it");
     }
 
     // Every tool, full of data, at its own size and at the smallest it allows.
