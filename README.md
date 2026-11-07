@@ -53,6 +53,8 @@ It opens in your Windows language if it's one of the nine it offers, and in Engl
 
 When you open a save, the app adopts that game's name, limits and categories.
 
+A Legends: Z-A save the game wrote without the Mega Dimension content, as when the emulator ran without the DLC, is a few bytes shorter than PKHeX expects. Editrainer opens it anyway, going by its signature and its blocks. The Pokémon of the Mega Dimension Pokédex it holds are intact, but the game shows them as eggs until the save is loaded with the DLC again: the app says so when it opens one, and while the save is in that state it won't generate, import or evolve into those species.
+
 Always open the game's **save file**, not an emulator save state (`.ss0`, `.ml1`…): those are not saves. **Find saves** checks the folders of Eden, Yuzu and its forks, Ryujinx, Citra, Azahar, Lime3DS, RetroArch, mGBA, melonDS, DeSmuME and Dolphin, plus the folder that holds the app. If it finds several, it lets you choose.
 
 ### What changes by generation
@@ -325,6 +327,7 @@ Things to expect:
 
 - Some species can't be made in some games, because no legal encounter reaches them there. Mythicals are the usual case on Sword and Shield, Brilliant Diamond and Shining Pearl, and Scarlet and Violet, where many Pokémon only arrive through HOME, which the engine doesn't simulate. Those are skipped and listed.
 - Box Pokémon don't register in the Pokédex: use the Pokédex editor for that.
+- On a Legends: Z-A save written without the Mega Dimension, the species of that Pokédex are left out, because the game would show them as eggs.
 - Colosseum and XD saves can't receive generated Pokémon, because they can't be rearranged.
 
 Generating was tested on all 38 games with generated saves, writing the file and reading the result back, and byte by byte on real Z-A saves. PKHeX calling a Pokémon legal is not the same as seeing it work in the game, and nothing here was loaded in one, so try it on a copy first.

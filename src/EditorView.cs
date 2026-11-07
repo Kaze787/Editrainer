@@ -9,7 +9,7 @@ namespace Editrainer;
 /// <summary>Everything inside the window. Texts and colours are set while it is built, so new settings mean a new view.</summary>
 public sealed partial class EditorView : UserControl
 {
-    const string AppVersion = "2.3";
+    const string AppVersion = "2.3.1";
     const int SidebarWidth = 340, TeamTitleRow = 2, TeamTitleHeight = 26, TeamGridRow = 3, TeamGridHeight = 72, HeroHeight = 172, BagTab = 2, DetailsTab = 3;
 
     /// <summary>What the view that replaces this one needs to carry on where it left off.</summary>
@@ -672,6 +672,7 @@ public sealed partial class EditorView : UserControl
             UseWaitCursor = true;
             Attach(SaveDocument.Open(path));
             Notify(T("{0} Pokémon cargados. Tu partida no cambia hasta que guardes.", document!.Pokemon.Count));
+            if (document.OpeningWarning is { } warning) Warn(warning);
         }
         catch (Exception ex) { ShowError(ex.Message); }
         finally { UseWaitCursor = false; }

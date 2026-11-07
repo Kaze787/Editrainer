@@ -236,6 +236,7 @@ public sealed partial class SaveDocument
         var pokemon = converted.Clone();
         if (pokemon.Species > Save.MaxSpeciesID || !Rules.Personal.IsPresentInGame(pokemon.Species, Rules.HasStoredForm ? pokemon.Form : (byte)0))
             throw new InvalidOperationException(T("{0} no existe en {1}.", name, Rules.FullName));
+        if (!Rules.CanShow(pokemon.Species)) throw new InvalidOperationException(Rules.HiddenReason(name));
         if (pokemon.Moves.Any(m => m > Save.MaxMoveID) || Rules.HasAbility && pokemon.Ability > Save.MaxAbilityID)
             throw new InvalidOperationException(T("Ese Pokémon tiene datos que {0} no admite.", Rules.FullName));
         Save.AdaptToSaveFile(pokemon, target.IsParty, EntityImportOption.Enable);

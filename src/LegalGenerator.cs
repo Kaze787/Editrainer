@@ -78,6 +78,7 @@ public sealed class LegalGenerator
         if (parsed.InvalidLines.Count != 0)
             throw new InvalidOperationException(T("El set tiene líneas que no se entienden: {0}", string.Join(", ", parsed.InvalidLines.Select(l => l.Value).Take(ShownLines))));
         string name = NameOf(set.Species);
+        if (!rules.CanShow(set.Species)) throw new InvalidOperationException(rules.HiddenReason(name));
         if (set.Species > rules.Personal.MaxSpeciesID || !Forms(set.Species).Any()) throw new InvalidOperationException(T("{0} no existe en {1}.", name, rules.FullName));
         if (rules.HasStoredForm && !IsKept(set.Species, set.Form)) throw new InvalidOperationException(T("Esa forma de {0} no se puede llevar a {1}.", name, rules.FullName));
         return Search(set, cancel);
@@ -136,8 +137,8 @@ public sealed class LegalGenerator
 
     IEnumerable<byte> Forms(ushort species) => Enumerable.Range(0, Math.Max(1, (int)rules.Personal[species].FormCount)).Select(f => (byte)f).Where(f => IsKept(species, f));
 
-    // Forms that only last a battle, or that take two Pokémon, are never in a box.
-    bool IsKept(ushort species, byte form) => rules.Personal.IsPresentInGame(species, form)
+    // Forms that only last a battle, or that take two Pokémon, are never in a box; nor is a species the game would show as an egg.
+    bool IsKept(ushort species, byte form) => rules.CanShow(species) && rules.Personal.IsPresentInGame(species, form)
         && !FormInfo.IsBattleOnlyForm(species, form, (byte)rules.Generation) && !FormInfo.IsFusedForm(species, form, (byte)rules.Generation)
         && !FormInfo.IsTotemForm(species, form, rules.Context) && !FormInfo.IsLordForm(species, form, rules.Context);
 

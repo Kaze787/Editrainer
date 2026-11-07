@@ -204,6 +204,16 @@ public sealed partial class GameRules
             && !FormInfo.IsTotemForm(species, form, Context) && !FormInfo.IsLordForm(species, form, Context),
     };
 
+    public const int LumioseDexSize = 232;
+
+    /// <summary>Written without the Mega Dimension, a Legends: Z-A save shows the Pokémon of that Pokédex as eggs.</summary>
+    public bool HidesMegaDimension => Save is SAV9ZA { SaveRevision: 0 };
+
+    /// <summary>Whether the game that last wrote this save can show a species.</summary>
+    public bool CanShow(ushort species) => Save is not SAV9ZA { SaveRevision: 0 } za || species <= za.MaxSpeciesID && za.Personal[species].DexIndex <= LumioseDexSize;
+
+    public string HiddenReason(string name) => T("{0} es de la Pokédex de la Dimensión Mega y esta partida se guardó sin ese DLC: el juego lo mostraría como un huevo.", name);
+
     // These belong to the story's own Pokémon, or follow the gender, which this editor does not change.
     static bool IsTiedForm(ushort species, byte form) => (Species)species switch {
         Species.Pikachu => form == 8,
@@ -463,7 +473,7 @@ public static partial class Catalog
             if (!visited.Add((species, form))) return;
             var next = forward.GetForward(species, form).ToArray()
                 .Select(x => (x.Species, Form: x.GetDestinationForm(form)))
-                .Where(x => x.Species <= personal.MaxSpeciesID && personal.IsPresentInGame(x.Species, x.Form))
+                .Where(x => x.Species <= personal.MaxSpeciesID && personal.IsPresentInGame(x.Species, x.Form) && e.Rules.CanShow(x.Species))
                 .Distinct().ToList();
             if (next.Count == 0)
                 result.Add(new(species, form, Names.specieslist[species] + (form == 0 ? "" : $" · {FormName(e.Rules, species, form)}")));
@@ -739,6 +749,37 @@ public sealed partial class SaveDocument
         return document;
     }
 
+    /// <summary>What the person should know on opening, such as Pokémon the game shows as eggs. Null when there is nothing to say.</summary>
+    public string? OpeningWarning { get; private init; }
+
+    /// <summary>
+    /// Reads a save in any format PKHeX knows. Legends: Z-A writes a few bytes more or less depending on the content it ran with,
+    /// and PKHeX lists only some of those sizes: such a file is told by its signature and its blocks instead.
+    /// </summary>
+    public static SaveFile? OpenSave(byte[] bytes, string? path = null) => SaveUtil.GetSaveFile(bytes.ToArray(), path) ?? OpenZA(bytes, path);
+
+    const int SmallestZA = 0x2E0000, LargestZA = 0x320000;
+
+    static SAV9ZA? OpenZA(byte[] bytes, string? path)
+    {
+        if (bytes.Length is < SmallestZA or > LargestZA || !SwishCrypto.GetIsHashValid(bytes)) return null;
+        try
+        {
+            var save = new SAV9ZA(bytes.ToArray());
+            if (!save.AllBlocks.Any(block => block.Key == SaveBlockAccessor9ZA.KSaveRevision)) return null;
+            if (path != null) save.Metadata.SetExtraInfo(path);
+            return save;
+        }
+        catch (Exception) { return null; }   // a signed file whose blocks are not Z-A's: whatever PKHeX trips on, it is not one
+    }
+
+    // Saved without the Mega Dimension, Legends: Z-A shows the Pokémon of that Pokédex as eggs. They are still there, so this only says so.
+    static string? WarningFor(GameRules rules, List<PokemonEntry> entries)
+    {
+        int hidden = rules.HidesMegaDimension ? entries.Count(e => !rules.CanShow(e.Original.Species)) : 0;
+        return hidden == 0 ? null : T("Esta partida se guardó sin la Dimensión Mega y tiene {0} Pokémon de esa Pokédex: el juego los muestra como huevos hasta que la cargues con el DLC.", hidden);
+    }
+
     /// <summary>Reads a save without making it the open one, for what only looks at it.</summary>
     public static SaveDocument Read(string path)
     {
@@ -746,7 +787,7 @@ public sealed partial class SaveDocument
         if (!info.Exists || info.Length is < SmallestSave or > LargestSave)
             throw new InvalidOperationException(T("Selecciona el archivo de guardado de una partida de Pokémon."));
         var bytes = File.ReadAllBytes(path);
-        if (SaveUtil.GetSaveFile(bytes.ToArray(), path) is not { } save)
+        if (OpenSave(bytes, path) is not { } save)
             throw new InvalidOperationException(T("No reconozco ese archivo como una partida de Pokémon. Debe ser el guardado del juego (.sav, .srm, .dsv, main…), no un estado guardado del emulador."));
         if (save is SAV9ZA && !SwishCrypto.GetIsHashValid(bytes)) throw new InvalidOperationException(T("El archivo no tiene una firma de partida válida."));
         var rules = new GameRules(save);
@@ -758,7 +799,8 @@ public sealed partial class SaveDocument
         entries = entries.Where(e => e.Original.ChecksumValid).ToList();   // older games can hold "bad eggs": leave those alone
         var items = save is SAV9ZA za ? ReadBagZA(za, rules) : ReadBag(save, rules);
         return new SaveDocument { FilePath = Path.GetFullPath(path), OriginalBytes = bytes, OriginalHash = Hash(bytes), Save = save, Rules = rules,
-            Pokemon = entries, loaded = entries.ToList(), unreadable = damaged, Money = save.Money, Items = items.OrderBy(x => x.Name, StringComparer.CurrentCultureIgnoreCase).ToList() };
+            Pokemon = entries, loaded = entries.ToList(), unreadable = damaged, Money = save.Money, Items = items.OrderBy(x => x.Name, StringComparer.CurrentCultureIgnoreCase).ToList(),
+            OpeningWarning = WarningFor(rules, entries) };
     }
 
     // The legality rules and the Showdown text ask PKHeX which save is open.
@@ -989,7 +1031,7 @@ public sealed partial class SaveDocument
 
     public byte[] BuildOutput() => ZaSave is { } za ? BuildZA(za) : Build();
 
-    SaveFile Reopen(byte[] bytes) => SaveUtil.GetSaveFile(bytes.ToArray(), FilePath)
+    SaveFile Reopen(byte[] bytes) => OpenSave(bytes, FilePath)
         ?? throw new InvalidOperationException(T("No se pudo volver a abrir la partida editada."));
 
     byte[] Build()
@@ -1061,7 +1103,7 @@ public sealed partial class SaveDocument
     byte[] BuildZA(SAV9ZA original)
     {
         if (ValidateEdits() is { } error) throw new InvalidOperationException(error);
-        var output = (SAV9ZA)SaveUtil.GetSaveFile(OriginalBytes.ToArray())!;
+        var output = (SAV9ZA)OpenSave(OriginalBytes.ToArray())!;
         var effectiveItems = EffectiveItemChanges();
         if (MoneyChanged) output.Money = (uint)Money;
         foreach (var change in effectiveItems)
@@ -1079,7 +1121,7 @@ public sealed partial class SaveDocument
         var bytes = output.Write().ToArray();
         if (bytes.Length != OriginalBytes.Length || !SwishCrypto.GetIsHashValid(bytes))
             throw new InvalidOperationException(T("No se pudo verificar la integridad de la partida editada."));
-        var reopened = (SAV9ZA?)SaveUtil.GetSaveFile(bytes.ToArray()) ?? throw new InvalidOperationException(T("No se pudo volver a abrir la partida editada."));
+        var reopened = (SAV9ZA?)OpenSave(bytes) ?? throw new InvalidOperationException(T("No se pudo volver a abrir la partida editada."));
         VerifyBlocks(reopened);
         if (reopened.Money != (uint)Money) throw new InvalidOperationException(T("El dinero guardado no coincide con el solicitado."));
         Za?.Verify(reopened);
@@ -1253,7 +1295,7 @@ public static class SaveLocator
         {
             var info = new FileInfo(path);
             if (info.Length is < SmallestSave or > LargestSave) return null;
-            if (SaveUtil.GetSaveFile(File.ReadAllBytes(path), path) is not { } save) return null;
+            if (SaveDocument.OpenSave(File.ReadAllBytes(path), path) is not { } save) return null;
             return new(path, new GameRules(save).FullName, save.OT, info.LastWriteTime);
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException or ArgumentException or InvalidOperationException) { return null; }

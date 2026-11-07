@@ -1,5 +1,6 @@
 using Editrainer;
 using PKHeX.Core;
+using System.Reflection;
 using System.Text.Json;
 
 /// <summary>Each Z-A edit through a real write and reopen, always on copies of the save.</summary>
@@ -22,7 +23,14 @@ static class ZaChecks
         throw new Exception("FAIL: expected rejection: " + description);
     }
 
-    static SAV9ZA Read(string path) => (SAV9ZA)SaveUtil.GetSaveFile(File.ReadAllBytes(path))!;
+    static SAV9ZA Read(string path) => (SAV9ZA)SaveDocument.OpenSave(File.ReadAllBytes(path))!;
+
+    static void Refused(Action action, string message, string description)
+    {
+        try { action(); }
+        catch (InvalidOperationException e) when (e.Message == message) { Check(true, description); return; }
+        throw new Exception("FAIL: expected that refusal: " + description);
+    }
     static SaveDocument Fresh(string name, Random? random = null)
     {
         var copy = Path.Combine(work, name);
@@ -58,7 +66,7 @@ static class ZaChecks
         source = Path.GetFullPath(saveFile); work = Path.GetFullPath(workFolder);
         Directory.CreateDirectory(work);
         sourceHash = SaveDocument.Hash(File.ReadAllBytes(source));
-        CheckBlocks(); CheckPoints(); CheckDonuts(); CheckClothing(); CheckScrews(); CheckMachines(); CheckAllTogether(); CheckVerification(); CheckOlderSave(); CheckLanguages();
+        CheckBlocks(); CheckPoints(); CheckDonuts(); CheckClothing(); CheckScrews(); CheckMachines(); CheckAllTogether(); CheckVerification(); CheckOlderSave(); CheckBaseMode(); CheckLanguages();
         Check(SaveDocument.Hash(File.ReadAllBytes(source)) == sourceHash, "The save given to the tests is untouched");
         Console.WriteLine($"{passed} Z-A checks passed.");
     }
@@ -375,6 +383,58 @@ static class ZaChecks
         doc.Za.Points[0].Value++;
         var (saved, _) = Written(doc);
         Check(saved.Za!.Points[0].Original == doc.Za.Points[0].Value, "A save without the pocket can still be written");
+    }
+
+    const uint ShrinkingBlock = 0xE3AFBE89;   // the game writes this block eight bytes shorter without the Mega Dimension
+    const ushort HiddenSpecies = 316;         // Gulpin: only in the Mega Dimension Pokédex
+
+    // A save the game wrote without the Mega Dimension: revision 0, a size PKHeX doesn't list, and Pokémon of that Pokédex the game shows as eggs.
+    static void CheckBaseMode()
+    {
+        var withDlc = Fresh("dlc");
+        Check(withDlc.OpeningWarning == null && !withDlc.Rules.HidesMegaDimension && withDlc.Rules.CanShow(HiddenSpecies), "A save written with the Mega Dimension shows everything and warns of nothing");
+        var blocks = SwishCrypto.Decrypt(File.ReadAllBytes(source)).ToList();
+        blocks.First(b => b.Key == SaveBlockAccessor9ZA.KSaveRevision).SetValue(0UL);
+        int at = blocks.FindIndex(b => b.Key == ShrinkingBlock);
+        var old = blocks[at];
+        // PKHeX keeps the block constructors to itself, and nothing public changes a block's length.
+        var make = typeof(SCBlock).GetConstructor(BindingFlags.NonPublic | BindingFlags.Instance, [typeof(uint), typeof(SCTypeCode), typeof(Memory<byte>)])!;
+        blocks[at] = (SCBlock)make.Invoke([old.Key, old.Type, (Memory<byte>)old.Data[..^8].ToArray()]);
+        var shorter = new SAV9ZA(SwishCrypto.Encrypt(blocks));
+        var free = Enumerable.Range(0, shorter.SlotCount).Where(i => shorter.GetBoxSlotAtIndex(i).Species == 0).Take(2).ToArray();
+        var hidden = shorter.GetBoxSlotAtIndex(Enumerable.Range(0, shorter.SlotCount).First(i => shorter.GetBoxSlotAtIndex(i).Species != 0)).Clone();
+        hidden.Species = HiddenSpecies; hidden.Form = 0; hidden.ClearNickname(); hidden.RefreshChecksum();
+        shorter.SetBoxSlotAtIndex(hidden, free[0], EntityImportSettings.None);
+        var bytes = shorter.Write().ToArray();
+        bool listed = SaveUtil.GetSaveFile(bytes.ToArray()) != null;
+        Check(bytes.Length == new FileInfo(source).Length - 8 && SwishCrypto.GetIsHashValid(bytes), "The base-mode save is eight bytes shorter and still signed");
+        Check(SaveDocument.OpenSave(bytes) is SAV9ZA { SaveRevision: 0 }, $"A base-mode save of a size PKHeX {(listed ? "lists" : "doesn't list")} opens as Legends: Z-A");
+        Check(SaveDocument.OpenSave(bytes[..^1]) == null && SaveDocument.OpenSave(new byte[bytes.Length]) == null, "A damaged or empty file of that size is still refused");
+        var folder = Path.Combine(work, "base-mode"); Directory.CreateDirectory(folder);
+        var path = Path.Combine(folder, "main"); File.WriteAllBytes(path, bytes);
+        var doc = SaveDocument.Open(path);
+        Check(doc.Rules.IsZA && doc.Rules.HidesMegaDimension && doc.ZaSave!.SaveRevision == 0, "The document knows the save was written without the Mega Dimension");
+        int count = withDlc.Pokemon.Count + 1;
+        Check(doc.Pokemon.Count == count && doc.OpeningWarning == Strings.T("Esta partida se guardó sin la Dimensión Mega y tiene {0} Pokémon de esa Pokédex: el juego los muestra como huevos hasta que la cargues con el DLC.", 1), "Opening it counts the Pokémon the game shows as eggs");
+        Check(Unchanged(doc), "Without edits it comes out byte for byte");
+        Check(doc.Pokedex.Lists.Count == 1 && doc.Pokedex.Lists[0].Name == "Luminalia", "Only the Lumiose Pokédex is offered");
+        var generator = new LegalGenerator(doc);
+        Check(generator.DexSpecies.Count <= GameRules.LumioseDexSize && generator.DexSpecies.All(doc.Rules.CanShow) && !generator.DexSpecies.Contains(HiddenSpecies), "The generators only know the species the game can show");
+        string refusal = doc.Rules.HiddenReason(Catalog.Names.specieslist[HiddenSpecies]);
+        Refused(() => generator.FromSet("Gulpin"), refusal, "A Showdown set of a Mega Dimension species is refused with the reason");
+        var hiddenFile = Path.Combine(folder, "hidden.pa9");
+        File.WriteAllBytes(hiddenFile, SaveDocument.PokemonFile(new PokemonEntry(doc.Rules, false, free[0], hidden)));
+        Refused(() => doc.Import(hiddenFile, new(false, free[1])), refusal, "Importing one is refused with the reason");
+        // A species with nowhere shown to go is its own final form, hidden or not.
+        Check(doc.Pokemon.All(e => Catalog.GetFinalForms(e).All(t => t.Species == e.Original.Species || doc.Rules.CanShow(t.Species))), "Evolutions never reach a species the game hides");
+        var shownFile = Path.Combine(folder, "shown.pa9");
+        File.WriteAllBytes(shownFile, SaveDocument.PokemonFile(doc.Pokemon.First(e => e.IsParty)));
+        doc.Import(shownFile, new(false, free[1]));
+        doc.Pokemon.First(e => e.Original.Species == HiddenSpecies).Edit.Level = 50;
+        var (saved, _) = Written(doc);
+        Check(saved.ZaSave!.SaveRevision == 0 && saved.OriginalBytes.Length == bytes.Length && saved.Pokemon.Count == count + 1
+            && saved.Pokemon.Any(e => e.Original.Species == HiddenSpecies && e.Original.CurrentLevel == 50), "Edits and imports are written and verified on a base-mode save");
+        Check(saved.OpeningWarning != null && saved.Rules.HidesMegaDimension, "The written save still says what the game hides");
     }
 
     static void CheckLanguages()

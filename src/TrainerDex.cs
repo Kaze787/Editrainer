@@ -156,7 +156,7 @@ public sealed record DexList(string Name, IReadOnlyList<DexEntry> Entries)
 public sealed class PokedexEditor
 {
     public const string National = "Nacional", AllSpecies = "Todas las especies";
-    const int LumioseDexSize = 232, KantoDexSize = 151;
+    const int KantoDexSize = 151;
     const uint NotShinyPid = 0x12345678;
     readonly SaveFile save;
     readonly Dictionary<ushort, DexState> originals = [];
@@ -221,7 +221,7 @@ public sealed class PokedexEditor
             SAV8LA => inGame.Where(species => PokedexSave8a.GetDexIndex(PokedexType8a.Hisui, species) != 0),
             SAV9SV s => inGame.Where(species => s.Zukan.GetDexIndex(species).Index != 0 && Forms(s, species).Any()),
             // Without the DLC only the Lumiose Pokédex exists; its entries come first.
-            SAV9ZA { SaveRevision: 0 } s => inGame.Where(species => s.Personal[species].DexIndex <= LumioseDexSize),
+            SAV9ZA { SaveRevision: 0 } s => inGame.Where(species => s.Personal[species].DexIndex <= GameRules.LumioseDexSize),
             _ => inGame,
         };
     }
@@ -299,10 +299,10 @@ public sealed class PokedexEditor
 
     // The two share one run of numbers in the data, and the game starts the second over at 1.
     static DexList Lumiose(SAV9ZA save, Func<string, Func<ushort, int>, DexList> indexed) =>
-        indexed("Luminalia", species => save.Personal[species].DexIndex is var index and <= LumioseDexSize ? index : 0);
+        indexed("Luminalia", species => save.Personal[species].DexIndex is var index and <= GameRules.LumioseDexSize ? index : 0);
 
     static DexList Hyperspace(SAV9ZA save, Func<string, Func<ushort, int>, DexList> indexed) =>
-        indexed("Luminalia Dimensional", species => Math.Max(save.Personal[species].DexIndex - LumioseDexSize, 0));
+        indexed("Luminalia Dimensional", species => Math.Max(save.Personal[species].DexIndex - GameRules.LumioseDexSize, 0));
 
     // The forms a save can register. Noble Pokémon don't count for research.
     static IEnumerable<byte> Forms(SaveFile save, ushort species)
