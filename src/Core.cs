@@ -287,9 +287,12 @@ public static class Catalog
         return balls;
     }
 
-    public static LegalityCheck CheckLegality(PokemonEntry e)
+    public static LegalityCheck CheckLegality(PokemonEntry e) => CheckLegality(e, e.Preview());
+
+    /// <summary>For a preview taken beforehand, which can be judged on another thread: this reads nothing the editor changes.</summary>
+    public static LegalityCheck CheckLegality(PokemonEntry e, PKM preview)
     {
-        var analysis = new LegalityAnalysis(e.Preview(), e.Rules.Personal, e.IsParty ? StorageSlotType.Party : StorageSlotType.Box);
+        var analysis = new LegalityAnalysis(preview, e.Rules.Personal, e.IsParty ? StorageSlotType.Party : StorageSlotType.Box);
         return new(analysis.Valid, analysis.Report(Strings.Current.GameData));
     }
 
@@ -598,12 +601,9 @@ public static class Catalog
         // Game Boy names can fill their field and lose the end mark, so the length is checked apart.
         if (d.Nickname.Length > e.Original.MaxStringLengthNickname || d.Trainer.Length > e.Original.MaxStringLengthTrainer) return true;
         var preview = e.Preview();
-        return d.Nickname != e.Baseline.Nickname && d.Nickname.Trim().Length != 0 && Loses(d.Nickname, preview.Nickname, e.Original.MaxStringLengthNickname)
-            || d.Trainer != e.Baseline.Trainer && Loses(d.Trainer, preview.OriginalTrainerName, e.Original.MaxStringLengthTrainer);
+        return d.Nickname != e.Baseline.Nickname && d.Nickname.Trim().Length != 0 && preview.Nickname != d.Nickname
+            || d.Trainer != e.Baseline.Trainer && preview.OriginalTrainerName != d.Trainer;
     }
-
-    // Game Boy games keep room for the end mark, so one letter too many is stored and then runs into the next field.
-    static bool Loses(string wanted, string stored, int limit) => wanted.Length > limit || stored != wanted;
 
     public static string NatureEffect(Nature nature)
     {

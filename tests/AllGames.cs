@@ -590,7 +590,7 @@ static class AllGames
     {
         var rules = doc.Rules;
         var counter = new Counter();
-        var rows = SaveTools.Scan(doc, counter);
+        var rows = SaveTools.Scan(SaveTools.Freeze(doc), counter);
         Check(label, rows.Select(r => r.Entry).SequenceEqual(doc.Pokemon), "revisa a todos los Pokémon", rows.Count.ToString());
         Check(label, counter.Seen.SequenceEqual(Enumerable.Range(1, doc.Pokemon.Count)), "informa del avance", string.Join(' ', counter.Seen));
         foreach (var row in rows)
@@ -609,25 +609,28 @@ static class AllGames
         if (rules.HasNature) edited.Edit.Nature = Nature.Timid;
         if (move != null) edited.Edit.Moves[1] = (ushort)move.Id;
         if (rules.HasShiny) Catalog.SetShiny(edited, true);
-        var row0 = SaveTools.Scan(doc)[0];
+        var frozen = SaveTools.Freeze(doc);
+        var row0 = SaveTools.Scan(frozen)[0];
         var pending = Catalog.CheckLegality(edited);
         Check(label, row0.Level == 77 && row0.IVs.Split('/')[1] == rules.MaxIV.ToString(), "incluye los cambios pendientes", $"{row0.Level} {row0.IVs}");
         Check(label, row0.Legal == pending.Valid && row0.Report == pending.Report, "juzga al Pokémon con sus cambios pendientes");
         if (rules.HasNature) Check(label, row0.Nature == Catalog.Names.natures[(int)Nature.Timid], "muestra la naturaleza pendiente", row0.Nature);
         if (move != null) Check(label, row0.Moves.Contains(move.Label), "muestra el movimiento pendiente", row0.Moves);
         if (rules.HasShiny) Check(label, row0.Shiny, "muestra el shiny pendiente");
+        edited.Edit.Level = 88;
+        Check(label, SaveTools.Scan(frozen)[0].Level == 77, "revisa lo que había al empezar, aunque se siga editando");
         Check(label, doc.DirtyCount == 1 && edited.Dirty && edited.Original.CurrentLevel == 12, "revisar no toca los cambios pendientes", doc.DirtyCount.ToString());
         doc.ResetPokemon(edited);
 
         edited.Edit.Moves = [];
-        var damaged = SaveTools.Scan(doc);
+        var damaged = SaveTools.Scan(SaveTools.Freeze(doc));
         Check(label, damaged.Count == doc.Pokemon.Count && !damaged[0].Legal && damaged[0].Report.Length != 0, "un Pokémon imposible no detiene la revisión", damaged[0].Report);
         doc.ResetPokemon(edited);
 
         using var cancel = new CancellationTokenSource();
         cancel.Cancel();
         bool stopped = false;
-        try { SaveTools.Scan(doc, null, cancel.Token); }
+        try { SaveTools.Scan(SaveTools.Freeze(doc), null, cancel.Token); }
         catch (OperationCanceledException) { stopped = true; }
         Check(label, stopped, "la revisión se puede detener");
         Check(label, !doc.HasChanges && doc.BuildOutput().SequenceEqual(doc.OriginalBytes), "revisar no altera lo que se guarda");
@@ -636,7 +639,7 @@ static class AllGames
     static void Report(SaveDocument doc, string label, string work)
     {
         var rules = doc.Rules;
-        var rows = SaveTools.Scan(doc);
+        var rows = SaveTools.Scan(SaveTools.Freeze(doc));
         var columns = SaveTools.ReportColumns(rules);
         var headers = columns.Select(c => c.Header).ToList();
         Check(label, headers.Contains("Lugar") && headers.Contains("Especie") && headers.Contains("Apodo") && headers.Contains("Nivel") && headers.Contains("Movimientos") && headers.Contains("¿Legal?"), "el informe tiene sus columnas", string.Join(' ', headers));
@@ -728,6 +731,14 @@ static class AllGames
         var other = SaveDocument.Read(otherPath);
         Check(label, RecentTrainerCache.Version == open.Save.Version, "leer otra partida no cambia la que está abierta", RecentTrainerCache.Version.ToString());
         Refused(label, "no compara partidas de juegos distintos", () => SaveTools.Compare(open, other), path, open.OriginalBytes);
+
+        // The same game under another trainer: only the name can tell whose rules are in force afterwards.
+        var renamed = SaveUtil.GetSaveFile(File.ReadAllBytes(path), path)!;
+        renamed.OT = "OTRO";
+        var renamedPath = Path.Combine(work, version + ".renamed.sav");
+        File.WriteAllBytes(renamedPath, TestSaves.Finish(renamed));
+        SaveTools.Compare(open, SaveDocument.Read(renamedPath));
+        Check(label, RecentTrainerCache.OriginalTrainerName == open.Save.OT, "comparar no cambia la partida abierta", RecentTrainerCache.OriginalTrainerName);
     }
 
     static void Backups(GameVersion version, string label, string work, string path)

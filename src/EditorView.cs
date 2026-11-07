@@ -914,8 +914,11 @@ public sealed class EditorView : UserControl
         audit.PressRow(row);
         Check(current == illegal && tabs.SelectedIndex == DetailsTab && search.Text.Length == 0 && tool == audit, "Clicking a row shows that Pokémon in the editor and leaves the audit open");
         restoreSelected.PerformClick();
-        audit.PressAgain(); WaitFor(() => !audit.Working, "the second audit");
-        Check(audit.RowOf(illegal) < 0, "Checking again sees that the edit was undone");
+        audit.PressAgain();
+        levelBox.Value = 1;
+        WaitFor(() => !audit.Working, "the second audit");
+        Check(audit.RowOf(illegal) < 0, "Checking again sees the undone edit, and what is edited while it works waits for the next check");
+        restoreSelected.PerformClick();
         audit.Close();
         Check(tool == null, "Closing a tool lets go of it");
 
@@ -977,11 +980,17 @@ public sealed class EditorView : UserControl
         Check(question!.Contains(T("Los cambios sin guardar de esta partida se perderán.")), "Restoring warns about pending edits");
         Check(File.ReadAllBytes(copy).SequenceEqual(before) && document!.OriginalBytes.SequenceEqual(before) && !document.HasChanges, "Restoring the open save reloads it, byte for byte");
         Check(tool == null && SaveTools.ListBackups(BackupRoot).Count == 2, "Restoring keeps a copy of what it replaced, and the tool closes with the old document");
+        var undo = OpenFromMenu<BackupWindow>(T("Administrar respaldos"));
+        undo.FindEmulator = _ => null; undo.Confirm = _ => true;
+        Check(undo.Cell(0, 2) == T("Copia hecha antes de restaurar otro respaldo") && undo.CanPressRestore, "The copy made before restoring is listed first and can be restored");
+        document!.Money = 0;
+        undo.PressRestore();
+        Check(File.ReadAllBytes(copy).SequenceEqual(edited) && document!.OriginalBytes.SequenceEqual(edited) && !document.HasChanges && tool == null, "Restoring that copy brings the exact file back, and the editor with it");
 
         var keep = document; document = null;
         tool = null;
         var noSave = OpenFromMenu<BackupWindow>(T("Administrar respaldos"));
-        Check(noSave.RowCount == 2, "Backups can be reached with no save open, in case it no longer opens");
+        Check(noSave.RowCount == 3, "Backups can be reached with no save open, in case it no longer opens");
         noSave.Close();
         toolsMenu.Items.Cast<ToolStripItem>().First(i => i.Text == T("Informe de cajas")).PerformClick();
         Check(tool == null && status.Text == T("Abre una partida primero."), "A tool that needs a save says so");

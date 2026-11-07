@@ -110,7 +110,8 @@ abstract class ScanWindow : ToolWindow
     async Task Run()
     {
         if (running != null) return;
-        int total = Document.Pokemon.Count;
+        var frozen = SaveTools.Freeze(Document);
+        int total = frozen.Count;
         using var cancel = running = new CancellationTokenSource();
         Working = true; again.Enabled = false; progress.Maximum = Math.Max(1, total); progress.Value = 0; progress.Visible = true;
         Say(T("Comprobando {0} de {1}…", 0, total));
@@ -120,7 +121,7 @@ abstract class ScanWindow : ToolWindow
         });
         try
         {
-            var rows = await Task.Run(() => SaveTools.Scan(Document, done, cancel.Token), cancel.Token);
+            var rows = await Task.Run(() => SaveTools.Scan(frozen, done, cancel.Token), cancel.Token);
             if (IsDisposed) return;
             Rows = rows; ShowRows();
         }

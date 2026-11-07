@@ -13,6 +13,9 @@ public sealed record Place(int Order, string Text) : IComparable
     public override string ToString() => Text;
 }
 
+/// <summary>A Pokémon as it stood when a scan began. When that couldn't be worked out, Preview is null and Problem says why.</summary>
+public sealed record ScanItem(PokemonEntry Entry, PKM? Preview, string? Problem);
+
 /// <summary>One Pokémon as it would be saved, pending edits included.</summary>
 public sealed record PokemonRow(PokemonEntry Entry, Place Place, string Species, string Nickname, int Level, string Nature, string Ability,
     string IVs, string EVs, string Moves, string Item, bool Shiny, bool Legal, string Report)
@@ -45,14 +48,26 @@ public static class SaveTools
     sealed record ItemRecord(string? Name, int Before, int After);
     sealed record PokemonRecord(string? DisplayName, string? SpeciesName, string? Location, Draft? Before, Draft? After);
 
-    /// <summary>Goes through every Pokémon. It can take a while, so it reports how many are done and can be stopped.</summary>
-    public static List<PokemonRow> Scan(SaveDocument document, IProgress<int>? progress = null, CancellationToken cancel = default)
+    /// <summary>
+    /// Takes every Pokémon as it would be saved. This reads the pending edits, so it belongs on the thread that makes them;
+    /// what it returns is the scan's own and can go to another thread while the editor carries on.
+    /// </summary>
+    public static List<ScanItem> Freeze(SaveDocument document) => document.Pokemon.Select(Freeze).ToList();
+
+    static ScanItem Freeze(PokemonEntry entry)
     {
-        var rows = new List<PokemonRow>(document.Pokemon.Count);
-        foreach (var entry in document.Pokemon)
+        try { return new(entry, entry.Preview(), null); }
+        catch (Exception e) { return new(entry, null, e.Message); }
+    }
+
+    /// <summary>Judges what was frozen. It can take a while, so it reports how many are done and can be stopped.</summary>
+    public static List<PokemonRow> Scan(IReadOnlyList<ScanItem> items, IProgress<int>? progress = null, CancellationToken cancel = default)
+    {
+        var rows = new List<PokemonRow>(items.Count);
+        foreach (var item in items)
         {
             cancel.ThrowIfCancellationRequested();
-            rows.Add(Describe(entry));
+            rows.Add(Describe(item));
             progress?.Report(rows.Count);
         }
         return rows;
@@ -66,14 +81,17 @@ public static class SaveTools
 
     static string MoveNames(IEnumerable<ushort> moves) => string.Join(", ", moves.Where(m => m != 0).Select(m => NameIn(Catalog.Names.movelist, m)));
 
-    static PokemonRow Describe(PokemonEntry entry)
+    static PokemonRow Describe(ScanItem item)
     {
+        var entry = item.Entry;
         var rules = entry.Rules;
         var place = new Place(Slot(entry), entry.Location);
+        // A save can hold anything, and one odd Pokémon must not cost the list of all the others.
+        PokemonRow Failed(string? why) => new(entry, place, entry.SpeciesName, "", entry.Baseline.Level, "", "", "", "", "", "", false, false, T("No se pudo comprobar: {0}", why));
+        if (item.Preview is not { } preview) return Failed(item.Problem);
         try
         {
-            var legality = Catalog.CheckLegality(entry);
-            var preview = entry.Preview();
+            var legality = Catalog.CheckLegality(entry, preview);
             var saved = Draft.From(preview);
             return new(entry, place, entry.SpeciesName, preview.IsNicknamed ? preview.Nickname : "", preview.CurrentLevel,
                 rules.HasNature ? NameIn(Catalog.Names.natures, (int)saved.Nature) : "",
@@ -81,11 +99,7 @@ public static class SaveTools
                 string.Join('/', saved.IVs), string.Join('/', saved.EVs), MoveNames(saved.Moves),
                 rules.HasHeldItems && saved.HeldItem != 0 ? ItemName(rules, saved.HeldItem) : "", preview.IsShiny, legality.Valid, legality.Report);
         }
-        // A save can hold anything, and one odd Pokémon must not cost the list of all the others.
-        catch (Exception e) when (e is not OperationCanceledException)
-        {
-            return new(entry, place, entry.SpeciesName, "", entry.Baseline.Level, "", "", "", "", "", "", false, false, T("No se pudo comprobar: {0}", e.Message));
-        }
+        catch (Exception e) when (e is not OperationCanceledException) { return Failed(e.Message); }
     }
 
     /// <summary>The columns of the report: what this game has, in the same order in the window and in the file.</summary>
