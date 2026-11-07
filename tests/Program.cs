@@ -17,6 +17,11 @@ if (args[0] == "--boxes")
     AllGames.RunBoxes(args[1], args.ElementAtOrDefault(2));
     return;
 }
+if (args[0] == "--batch")
+{
+    AllGames.RunBatch(args[1], args.ElementAtOrDefault(2));
+    return;
+}
 if (args[0] == "--box-save")
 {
     AllGames.RealSave(Path.GetFullPath(args[1]), Path.GetFullPath(args[2]));

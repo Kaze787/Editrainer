@@ -50,6 +50,12 @@ public sealed class Draft
     public string Nickname { get; set; } = "";
     public string Trainer { get; set; } = "";
     public int Ball { get; set; }
+    public Draft Copy()
+    {
+        var copy = (Draft)MemberwiseClone();
+        copy.IVs = IVs.ToArray(); copy.EVs = EVs.ToArray(); copy.Moves = Moves.ToArray();
+        return copy;
+    }
     public static Draft From(PKM p)
     {
         var d = new Draft { Nature = p.StatAlignment, IsShiny = p.IsShiny, HeldItem = p.HeldItem, Friendship = p.CurrentFriendship,
@@ -289,10 +295,15 @@ public static class Catalog
         sources = null;
     }
 
-    public static List<Choice> GetBalls(PokemonEntry e)
+    public static List<Choice> GetBalls(GameRules rules)
     {
         sources ??= new GameDataSource(Names);
-        var balls = sources.BallDataSource.Where(b => b.Value > 0 && b.Value <= e.Rules.Save.MaxBallID).Select(b => new Choice(b.Value, b.Text)).ToList();
+        return sources.BallDataSource.Where(b => b.Value > 0 && b.Value <= rules.Save.MaxBallID).Select(b => new Choice(b.Value, b.Text)).ToList();
+    }
+
+    public static List<Choice> GetBalls(PokemonEntry e)
+    {
+        var balls = GetBalls(e.Rules);
         if (balls.All(b => b.Id != e.Baseline.Ball)) balls.Insert(0, new Choice(e.Baseline.Ball, T("{0} (actual)", e.Baseline.Ball)));
         return balls;
     }

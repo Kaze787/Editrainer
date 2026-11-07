@@ -1506,6 +1506,332 @@ static class AllGames
         CatchingMistakes(version, label, work);
     }
 
+    // A team, two boxes, a nickname, an item, some EVs and, where the game has them, an egg.
+    static string BatchSave(GameVersion version, string work, out BagItem? held)
+    {
+        var start = SaveDocument.Open(BoxSave(version, work, "batch", (sav, rules) => {
+            var named = sav.GetBoxSlotAtIndex(1);
+            named.SetNickname(named.Japanese && rules.IsGameBoy ? "アイウ" : rules.IsGameBoy ? "ABC" : "Abc");
+            named.RefreshChecksum();
+            sav.SetBoxSlotAtIndex(named, 1, EntityImportSettings.None);
+            if (rules.Generation < 3 || sav is SAV7b or SAV8LA or SAV9ZA) return;
+            var egg = sav.GetBoxSlotAtIndex(3);
+            egg.IsEgg = true; egg.RefreshChecksum();
+            sav.SetBoxSlotAtIndex(egg, 3, EntityImportSettings.None);
+        }));
+        var rules = start.Rules;
+        held = rules.HasHeldItems ? start.Items.FirstOrDefault(i => rules.CanHold(i.Id) && !start.IsUniqueHeldItem(i.Id) && !rules.IsMail(i.Id) && i.MaxCount >= 3) : null;
+        if (held != null) { start.SetItemCount(held.Id, 2); start.EquipItem(Boxed(start, 20), held.Id); }
+        Boxed(start, 22).Edit.EVs[1] = 10;
+        var path = Path.Combine(work, version + ".batch.ready.sav");
+        File.WriteAllBytes(path, start.BuildOutput());
+        return path;
+    }
+
+    // One plan on everyone, through a real file and back. Those it doesn't reach have to arrive as they were.
+    static SaveDocument? BatchOne(string label, string path, string what, BatchPlan plan, bool offered, bool eggsTakeIt, Func<PokemonEntry, PokemonEntry, bool> arrived)
+    {
+        var doc = SaveDocument.Open(path);
+        var everyone = doc.InScope(BatchScope.Everyone, 0);
+        var result = doc.ApplyBatch(everyone, plan);
+        Check(label, result.Reached == everyone.Count && doc.DirtyCount == result.Changed, what + ": cuenta a los que cambian", $"{result.Changed} de {result.Reached}, {doc.DirtyCount} pendientes");
+        Check(label, result.Skipped.All(s => s.Reason.Length != 0 && s.Change.Length != 0) && result.Summary.Contains($"{result.Changed}"), what + ": explica lo que omite", result.Summary);
+        Check(label, doc.HasChanges == (result.Changed != 0) && doc.CanUndoBatch == (result.Changed != 0), what + ": queda pendiente solo si cambia algo");
+        if (!offered)
+        {
+            Check(label, result.Changed == 0 && result.SkippedPokemon == everyone.Count, what + ": este juego no lo admite y lo dice", result.Summary);
+            return null;
+        }
+        var left = everyone.Where(e => e.Original.IsEgg && !eggsTakeIt).ToHashSet();
+        Check(label, result.Skipped.Select(s => s.Entry).ToHashSet().SetEquals(left), what + ": omite solo a quien no lo admite", string.Join(" | ", result.Skipped.Select(s => $"{s.Entry.Location}: {s.Reason}")));
+        var read = Reopened(label, doc, path, "lote " + what);
+        foreach (var e in everyone)
+        {
+            var saved = read.At(e.Place)!;
+            Check(label, left.Contains(e) ? e.Edit.SameAs(e.Baseline) && !saved.Dirty : arrived(saved, e), what + ": llega al archivo", e.Location);
+        }
+        if (doc.CanUndoBatch) doc.UndoBatch();
+        Check(label, !doc.HasChanges && !doc.CanUndoBatch && doc.BuildOutput().SequenceEqual(doc.OriginalBytes), what + ": deshacer deja la partida idéntica");
+        return read;
+    }
+
+    static string Saved(SaveDocument doc, string path, string name)
+    {
+        var edited = $"{path}.{name}.out";
+        File.WriteAllBytes(edited, doc.BuildOutput());
+        return edited;
+    }
+
+    // Every change on its own, and all of them at once. Each one is written, read back and undone.
+    static void BatchActions(GameVersion version, string label, string work)
+    {
+        var path = BatchSave(version, work, out var held);
+        var rules = SaveDocument.Open(path).Rules;
+        bool All(int[] values, bool iv, Func<int, int> wanted) => Enumerable.Range(0, 6).Where(stat => rules.IsStatEditable(stat, iv)).All(stat => values[stat] == wanted(stat));
+        bool Kana(PokemonEntry e) => e.Original.Japanese && rules.IsGameBoy;
+        string trainer = SaveDocument.Open(path).Pokemon[0] is var sample && Kana(sample) ? "アイ" : "ANA";
+        int ball = rules.HasBall ? Catalog.GetBalls(rules)[^1].Id : 0;
+        int[] spread = [10, 20, 30, 40, 50, 60];
+
+        BatchOne(label, path, "IV al maximo", new() { IVs = rules.MaxIV }, true, true, (s, _) => All(s.Edit.IVs, true, _ => rules.MaxIV) && s.Original.ChecksumValid);
+        BatchOne(label, path, "IV a un valor", new() { IVs = 7 }, true, true, (s, _) => All(s.Edit.IVs, true, _ => 7));
+        BatchOne(label, path, "EV a cero", new() { EVs = new int[6] }, true, true, (s, _) => s.Edit.EVs.All(v => v == 0));
+        BatchOne(label, path, "EV en reparto", new() { EVs = spread }, true, true, (s, _) => All(s.Edit.EVs, false, stat => spread[stat]));
+        BatchOne(label, path, "nivel", new() { Level = 50 }, true, false, (s, _) => s.Original.CurrentLevel == 50 && (!s.Original.PartyStatsPresent || s.Original.Stat_Level == 50 && s.Original.Stat_HPMax == s.Original.GetStats(s.Original.PersonalInfo)[0]));
+        BatchOne(label, path, "naturaleza", new() { Nature = Nature.Timid }, rules.HasNature, true, (s, e) => s.Edit.Nature == Nature.Timid && s.Original.Gender == e.Original.Gender && s.Original.IsShiny == e.Original.IsShiny);
+        var shiny = BatchOne(label, path, "shiny", new() { Shiny = true }, rules.HasShiny, true, (s, e) => s.Original.IsShiny && s.Original.Gender == e.Original.Gender && s.Edit.Nature == e.Baseline.Nature);
+        if (shiny != null) BatchOne(label, Saved(shiny, path, "shiny"), "sin shiny", new() { Shiny = false }, true, true, (s, _) => !s.Original.IsShiny);
+        BatchOne(label, path, "amistad", new() { MaxFriendship = true }, rules.HasFriendship, false, (s, _) => s.Original.CurrentFriendship == 255);
+        BatchOne(label, path, "ball", new() { Ball = ball }, rules.HasBall, false, (s, _) => s.Original.Ball == ball);
+        BatchOne(label, path, "objeto", new() { RemoveItem = true }, rules.HasHeldItems, true, (s, _) => s.Original.HeldItem == 0);
+        BatchOne(label, path, "apodo", new() { ClearNickname = true }, true, false, (s, e) => !s.Original.IsNicknamed && s.Original.Nickname.Length != 0 && s.Original.Nickname.Equals(SpeciesName.GetSpeciesNameGeneration(e.Original.Species, s.Original.Language, e.Original.Format), StringComparison.OrdinalIgnoreCase));
+        BatchOne(label, path, "entrenador", new() { Trainer = trainer }, true, false, (s, _) => s.Original.OriginalTrainerName == trainer);
+
+        var whole = new BatchPlan { IVs = rules.MaxIV, EVs = spread, Level = 60, Nature = rules.HasNature ? Nature.Bold : null, Shiny = rules.HasShiny ? true : null, MaxFriendship = rules.HasFriendship,
+            Ball = rules.HasBall ? ball : null, RemoveItem = rules.HasHeldItems, ClearNickname = true, Trainer = trainer };
+        var doc = SaveDocument.Open(path);
+        var everyone = doc.InScope(BatchScope.Everyone, 0);
+        var result = doc.ApplyBatch(everyone, whole);
+        Check(label, result.Changed == everyone.Count, "todo a la vez: cambian todos", result.Summary);
+        // A Game Boy shiny keeps the DVs that make it one, so the maximum IVs are what gives way.
+        bool dvsGiveWay = rules.IsGameBoy && rules.HasShiny;
+        Check(label, result.Skipped.All(s => s.Entry.Original.IsEgg || dvsGiveWay && s.Change == rules.IVName), "todo a la vez: solo se omite lo que no se puede admitir", string.Join(" | ", result.Skipped.Select(s => s.Reason)));
+        if (held != null) Check(label, doc.GetItemCount(held.Id) == 2, "todo a la vez: el objeto vuelve a la bolsa", doc.GetItemCount(held.Id).ToString());
+        var read = Reopened(label, doc, path, "lote todo");
+        foreach (var e in everyone.Where(e => !e.Original.IsEgg))
+        {
+            var s = read.At(e.Place)!;
+            bool ivs = dvsGiveWay || All(s.Edit.IVs, true, _ => rules.MaxIV);
+            Check(label, ivs && All(s.Edit.EVs, false, stat => spread[stat]) && s.Original.CurrentLevel == 60 && s.Original.OriginalTrainerName == trainer, "todo a la vez: llega al archivo", e.Location);
+            if (rules.HasShiny) Check(label, s.Original.IsShiny, "todo a la vez: es shiny", e.Location);
+            if (rules.HasNature) Check(label, s.Edit.Nature == Nature.Bold, "todo a la vez: cambia la naturaleza", e.Location);
+            if (rules.HasBall) Check(label, s.Original.Ball == ball, "todo a la vez: cambia la Poké Ball", e.Location);
+        }
+        if (held != null) Check(label, read.GetItemCount(held.Id) == 2, "todo a la vez: la bolsa guarda el objeto", read.GetItemCount(held.Id).ToString());
+
+        var copy = Path.Combine(work, version + ".batch.copy.sav");
+        File.Copy(path, copy, true);
+        var writer = SaveDocument.Open(copy);
+        writer.ApplyBatch(writer.InScope(BatchScope.Everyone, 0), new() { IVs = 9 });
+        var backup = writer.Write(copy, Path.Combine(work, "Backups"), _ => null);
+        Check(label, File.ReadAllBytes(Path.Combine(backup, Path.GetFileName(copy) + ".original")).SequenceEqual(writer.OriginalBytes), "el lote se guarda con su respaldo");
+        Check(label, File.ReadAllText(Path.Combine(backup, "cambios.json")).Contains("\"pokemon\": ["), "el respaldo anota el lote");
+        var after = SaveDocument.Open(copy);
+        Check(label, after.Pokemon.All(p => All(p.Edit.IVs, true, _ => 9)) && !after.HasChanges && !after.CanUndoBatch, "el guardado real aplica el lote y no deja nada que deshacer");
+    }
+
+    // Who a batch reaches, what stops it and how it comes back.
+    static void BatchLimits(GameVersion version, string label, string work)
+    {
+        var path = BatchSave(version, work, out var held);
+        var doc = SaveDocument.Open(path);
+        var rules = doc.Rules;
+
+        var team = doc.InScope(BatchScope.Team, 0); var firstBox = doc.InScope(BatchScope.OpenBox, 0); var secondBox = doc.InScope(BatchScope.OpenBox, 1); var boxed = doc.InScope(BatchScope.AllBoxes, 0);
+        Check(label, team.All(p => p.IsParty) && team.Count == (doc.Save is SAV7b ? 0 : 3), "el alcance del equipo", team.Count.ToString());
+        Check(label, firstBox.Count == (doc.Save is SAV7b ? 5 : 4) && secondBox.Count == (doc.Save is SAV7b ? 0 : 1), "el alcance de la caja abierta", $"{firstBox.Count} y {secondBox.Count}");
+        Check(label, boxed.Count == firstBox.Count + secondBox.Count && doc.InScope(BatchScope.Everyone, 0).Count == boxed.Count + team.Count, "los alcances de todas las cajas y de todos");
+        var reached = firstBox.Where(p => !p.Original.IsEgg).ToList();
+        var outside = doc.Pokemon.Except(firstBox).ToList();
+        var result = doc.ApplyBatch(firstBox, new() { IVs = 3 });
+        Check(label, firstBox.All(p => p.Dirty) && outside.All(p => !p.Dirty) && result.Changed == firstBox.Count, "el lote llega solo a su alcance");
+
+        // Undo goes by batches, and what was edited by hand since stays.
+        var bystander = outside.Count != 0 ? outside[0] : null;
+        if (bystander != null) bystander.Edit.EVs[0] = 5;
+        doc.ApplyBatch(firstBox, new() { Level = 40 });
+        var pending = firstBox[0];
+        pending.Edit.EVs[1] = 44;
+        doc.UndoBatch();
+        Check(label, firstBox.All(p => p.Edit.Level == p.Baseline.Level) && firstBox.All(p => p.Edit.IVs.Where((_, stat) => rules.IsStatEditable(stat, true)).All(v => v == 3)), "deshacer vuelve al lote anterior, no al principio");
+        Check(label, pending.Edit.EVs[1] == 44, "deshacer conserva lo editado después en ese mismo Pokémon", pending.Edit.EVs[1].ToString());
+        if (bystander != null) Check(label, bystander.Edit.EVs[0] == 5, "deshacer respeta a los demás Pokémon");
+        doc.UndoBatch();
+        Check(label, !doc.CanUndoBatch && pending.Edit.EVs[1] == 44 && firstBox.Skip(1).All(p => p.Edit.SameAs(p.Baseline)), "deshacer los dos lotes devuelve los borradores anteriores");
+        doc.ResetPokemon(pending); if (bystander != null) doc.ResetPokemon(bystander);
+        Check(label, !doc.HasChanges, "no quedan cambios");
+
+        // What the game could never take stops before starting, and nothing changes.
+        Refused(label, () => doc.ApplyBatch(doc.Pokemon, new() { IVs = rules.MaxIV + 1 }), "lote con IV demasiado altos");
+        Refused(label, () => doc.ApplyBatch(doc.Pokemon, new() { EVs = [rules.MaxEV + 1, 0, 0, 0, 0, 0] }), "lote con EV demasiado altos");
+        if (rules.MaxEVTotal != 0) Refused(label, () => doc.ApplyBatch(doc.Pokemon, new() { EVs = [252, 252, 252, 0, 0, 0] }), "lote con EV que pasan del total");
+        Refused(label, () => doc.ApplyBatch(doc.Pokemon, new() { Level = 0 }), "lote con nivel 0");
+        Refused(label, () => doc.ApplyBatch(doc.Pokemon, new() { Trainer = " " }), "lote con entrenador vacío");
+        Check(label, !doc.HasChanges && !doc.CanUndoBatch, "un lote rechazado no deja rastro");
+        Check(label, new BatchPlan().IsEmpty && !new BatchPlan { MaxFriendship = true }.IsEmpty && !new BatchPlan { EVs = new int[6] }.IsEmpty, "sabe si un lote pide algo");
+
+        // Nothing to do is not a change, and leaves nothing to undo.
+        var same = doc.Pokemon.Where(p => !p.Original.IsEgg).ToList();
+        var repeated = doc.ApplyBatch(same, new() { Level = same[0].Edit.Level });
+        Check(label, repeated.Changed == same.Count - 1, "solo cuenta a quienes cambian de verdad", repeated.Summary);
+        doc.UndoBatch();
+        Check(label, doc.ApplyBatch(doc.Pokemon, new() { EVs = doc.Pokemon[0].Edit.EVs.ToArray(), ClearNickname = false }).Changed <= doc.Pokemon.Count, "repetir valores no falla");
+        while (doc.CanUndoBatch) doc.UndoBatch();
+
+        // One who can't take something keeps the rest of the batch; a name that doesn't fit stays out.
+        var longName = new string('A', doc.Save.MaxStringLengthTrainer + 1);
+        var partial = doc.ApplyBatch(same, new() { Level = 50, Trainer = longName });
+        Check(label, partial.Changed == same.Count && partial.SkippedPokemon == same.Count && same.All(p => p.Edit.Level == 50 && p.Edit.Trainer == p.Baseline.Trainer), "un nombre que no cabe se omite y el nivel sigue", partial.Summary);
+        Check(label, doc.ValidateEdits() == null, "lo omitido no impide guardar", doc.ValidateEdits() ?? "");
+        doc.UndoBatch();
+
+        // A draft that can't be saved stays as the user left it, and doesn't stop the others.
+        var broken = same[0]; var fine = same[1];
+        broken.Edit.Moves[1] = broken.Edit.Moves[0];
+        var around = doc.ApplyBatch(same, new() { Level = 50 });
+        Check(label, broken.Edit.Level == broken.Baseline.Level && fine.Edit.Level == 50 && around.Skipped.Single().Entry == broken, "quien ya no es válido se omite con su motivo", around.Summary);
+        doc.UndoBatch(); doc.ResetPokemon(broken);
+
+        // Something unexpected halfway through undoes the whole batch: there would be no record of half of one.
+        fine.Edit.Moves = [fine.Edit.Moves[0]];
+        bool stopped = false;
+        try { doc.ApplyBatch(same, new() { Level = 50 }); }
+        catch (IndexOutOfRangeException) { stopped = true; }
+        Check(label, stopped && broken.Edit.SameAs(broken.Baseline) && !doc.CanUndoBatch, "un fallo a medio lote no deja medio lote");
+        doc.ResetPokemon(fine);
+        Check(label, !doc.HasChanges, "tras el fallo no queda nada pendiente");
+
+        if (rules.HasFriendship && doc.Pokemon.FirstOrDefault(p => p.Original.IsEgg) is { } egg)
+        {
+            int hatching = egg.Edit.Friendship;
+            doc.ApplyBatch([egg], new() { MaxFriendship = true, Level = 50, Trainer = "AB", ClearNickname = true });
+            Check(label, egg.Edit.SameAs(egg.Baseline) && egg.Edit.Friendship == hatching, "un huevo conserva sus pasos, su nivel y sus nombres");
+        }
+
+        if (held != null) BatchItems(label, doc, held);
+        if (doc.Rules.Generation is >= 2 and <= 5) BatchMail(label, doc);
+        if (rules.IsGameBoy) BatchDVs(version, label, work);
+    }
+
+    static void BatchItems(string label, SaveDocument doc, BagItem held)
+    {
+        var holder = doc.Pokemon.First(p => p.Edit.HeldItem == held.Id);
+        doc.ApplyBatch(doc.Pokemon, new() { RemoveItem = true });
+        Check(label, holder.Edit.HeldItem == 0 && doc.GetItemCount(held.Id) == 2, "el objeto vuelve a la bolsa", doc.GetItemCount(held.Id).ToString());
+        doc.SetItemCount(held.Id, 0);
+        Refused(label, () => doc.UndoBatch(), "deshacer si el objeto ya no está en la bolsa");
+        Check(label, holder.Edit.HeldItem == 0 && doc.CanUndoBatch, "el rechazo deja el lote como estaba");
+        doc.SetItemCount(held.Id, 2);
+        doc.UndoBatch();
+        Check(label, holder.Edit.HeldItem == held.Id && doc.GetItemCount(held.Id) == 1 && doc.ItemChanges.Count != 0 | !doc.HasChanges, "deshacer vuelve a equipar el objeto", doc.GetItemCount(held.Id).ToString());
+        doc.ResetResources();
+
+        doc.SetItemCount(held.Id, held.MaxCount);
+        var full = doc.ApplyBatch(doc.Pokemon, new() { RemoveItem = true });
+        Check(label, holder.Edit.HeldItem == held.Id && full.Skipped.Single().Entry == holder && full.Changed == 0, "sin espacio en la bolsa se queda el objeto y lo dice", full.Summary);
+        doc.ResetResources();
+        Check(label, !doc.HasChanges, "sin cambios de objetos");
+    }
+
+    static void BatchMail(string label, SaveDocument doc)
+    {
+        var holder = doc.Pokemon[0];
+        holder.Edit.HeldItem = Enumerable.Range(1, 400).First(doc.Rules.IsMail);
+        var result = doc.ApplyBatch([holder], new() { RemoveItem = true });
+        Check(label, result.Changed == 0 && result.Skipped.Single().Reason == Strings.T("Lleva una carta. Quítasela en el juego."), "una carta se queda con su Pokémon", result.Summary);
+        doc.ResetPokemon(holder);
+    }
+
+    // The DVs of a Game Boy Pokémon also decide how it looks, so a batch can't change that by accident.
+    static void BatchDVs(GameVersion version, string label, string work)
+    {
+        var doc = SaveDocument.Open(BoxSave(version, work, "dvs"));
+        var rules = doc.Rules;
+        var plain = doc.Pokemon[0];
+        if (rules.Generation == 1)
+        {
+            Check(label, doc.ApplyBatch([plain], new() { IVs = 10 }).Skipped.Count == 0 && plain.Edit.IVs[1] == 10, "Gen 1 no tiene shiny que cuidar");
+            return;
+        }
+        var refused = doc.ApplyBatch([plain], new() { IVs = 10 });
+        Check(label, refused.Changed == 0 && refused.Skipped.Count == 1 && !plain.Preview().IsShiny, "un valor que lo volvería shiny se omite", refused.Summary);
+        var wanted = doc.ApplyBatch([plain], new() { Shiny = true, IVs = rules.MaxIV });
+        Check(label, plain.Preview().IsShiny && wanted.Skipped.Single().Change == rules.IVName, "un shiny conserva sus DV", wanted.Summary);
+        var both = doc.ApplyBatch([plain], new() { Shiny = false, IVs = rules.MaxIV });
+        Check(label, !plain.Preview().IsShiny && plain.Edit.IVs[1] == rules.MaxIV && both.Skipped.Count == 0, "quitar el shiny libera los DV", both.Summary);
+        Check(label, plain.Preview().IV_HP == plain.Edit.IVs[0] && plain.Edit.IVs[5] == plain.Edit.IVs[4], "el borrador sigue los DV que el juego calcula", string.Join(' ', plain.Edit.IVs));
+
+        var sav = TestSaves.Start(version);
+        var unown = Entry(sav, new GameRules(sav), (ushort)Species.Unown, version);
+        Catalog.SetForm(unown, Catalog.GetForms(unown)[3]);
+        var letter = doc.ApplyBatch([unown], new() { Shiny = true });
+        Check(label, letter.Changed == 0 && !unown.Edit.IsShiny && unown.Preview().Form == 3, "un Unown no cambia de letra por un lote", letter.Summary);
+        var kept = doc.ApplyBatch([unown], new() { IVs = rules.MaxIV });
+        Check(label, unown.Preview().Form == 3, "los DV de un Unown conservan su letra", kept.Summary);
+    }
+
+    static int formItemsTried;
+
+    // A form that lasts only with its item keeps the item.
+    static void BatchFormItem(GameVersion version, string label, string work)
+    {
+        var sav = TestSaves.Start(version);
+        var rules = new GameRules(sav);
+        ushort arceus = (ushort)Species.Arceus;
+        if (!rules.HasStoredForm || rules.Context == EntityContext.Gen8a || arceus > sav.MaxSpeciesID || !sav.Personal.IsPresentInGame(arceus, 0)) return;
+        var fire = Catalog.GetForms(Entry(sav, rules, arceus, version)).FirstOrDefault(c => c.Form != 0);
+        if (fire == null) return;
+        sav.SetBoxSlotAtIndex(Make(sav, arceus, version), 0, EntityImportSettings.None);
+        var path = Path.Combine(work, version + ".batch.arceus.sav");
+        File.WriteAllBytes(path, TestSaves.Finish(sav));
+        var doc = SaveDocument.Open(path);
+        var e = doc.Pokemon.First(p => p.Original.Species == arceus);
+        ushort plate = rules.ItemForForm(arceus, fire.Form);
+        if (!doc.Items.Any(i => i.Id == plate)) return;
+        doc.SetItemCount(plate, 1);
+        doc.SetForm(e, fire);
+        var result = doc.ApplyBatch([e], new() { RemoveItem = true });
+        formItemsTried++;
+        Check(label, e.Edit.HeldItem == plate && result.Skipped.Single().Reason == Strings.T("Su forma depende de ese objeto."), "una forma conserva el objeto que la mantiene", result.Summary);
+    }
+
+    // Every place taken, and the changes that take the longest: the button has to answer.
+    static void BatchFull(GameVersion version, string label, string work)
+    {
+        var sav = TestSaves.Start(version);
+        if (sav is SAV7b) return;
+        for (int i = 0; i < sav.SlotCount; i++) sav.SetBoxSlotAtIndex(Tagged(sav, BoxSpecies[i % BoxSpecies.Length], version, 20), i, EntityImportSettings.None);
+        if (sav.Generation <= 2) sav.SetPartySlotAtIndex(Make(sav, 25, version), 0, EntityImportSettings.None);
+        sav.Money = 3000;
+        var path = Path.Combine(work, version + ".batch.full.sav");
+        File.WriteAllBytes(path, TestSaves.Finish(sav));
+        var doc = SaveDocument.Open(path);
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        var result = doc.ApplyBatch(doc.Pokemon, new() { IVs = doc.Rules.MaxIV, EVs = [4, 0, 0, 252, 252, 0], Level = 100, Nature = doc.Rules.HasNature ? Nature.Timid : null, MaxFriendship = doc.Rules.HasFriendship, Ball = doc.Rules.HasBall ? 4 : null, RemoveItem = doc.Rules.HasHeldItems, ClearNickname = true, Trainer = "ANA" });
+        long applied = clock.ElapsedMilliseconds; clock.Restart();
+        var error = doc.ValidateEdits();
+        long validated = clock.ElapsedMilliseconds; clock.Restart();
+        var bytes = doc.BuildOutput();
+        long built = clock.ElapsedMilliseconds;
+        Console.WriteLine($"      {label}: {doc.Pokemon.Count} Pokémon, aplicar {applied} ms, validar {validated} ms, escribir {built} ms");
+        Check(label, result.Changed == doc.Pokemon.Count && error == null && bytes.Length == doc.OriginalBytes.Length, "un lote llena todas las cajas", error ?? result.Summary);
+        Check(label, applied < 8000, "aplicar a todas las cajas no congela la ventana", applied + " ms");
+    }
+
+    static void Batch(GameVersion version, string label, string work)
+    {
+        BatchActions(version, label, work);
+        BatchLimits(version, label, work);
+        BatchFormItem(version, label, work);
+    }
+
+    /// <summary>Only the batch changes, in every game: the quick way to see those alone.</summary>
+    public static void RunBatch(string work, string? only = null)
+    {
+        Directory.CreateDirectory(work);
+        foreach (var (game, label) in Games.Where(g => only == null || g.Label == only))
+        {
+            int before = failed;
+            try { Batch(game, label, work); BatchFull(game, label, work); }
+            catch (Exception ex) { failed++; failures.Add($"{label}: {ex.GetType().Name}: {ex.Message.Split('\n')[0]}  {ex.StackTrace?.Split('\n').FirstOrDefault()?.Trim()}"); }
+            Console.WriteLine($"{(failed == before ? "ok   " : "FALLA")} {label}");
+        }
+        Console.WriteLine();
+        foreach (var f in failures) Console.WriteLine("  " + f);
+        Console.WriteLine($"\nRESULTADO: {Games.Length} juegos, {formItemsTried} con formas que dependen de un objeto, {passed} comprobaciones correctas, {failed} fallidas");
+        Environment.ExitCode = failed == 0 ? 0 : 1;
+    }
+
     static void LanguageSwitch(GameVersion version, string label, string work)
     {
         var doc = SaveDocument.Open(Path.Combine(work, version + ".sav"));
@@ -1744,6 +2070,15 @@ static class AllGames
             Check(label, DifferentSlots(boxes, sorted.BoxInfo.Data, slot).All(i => i < save.BoxSlotCount), "ordenar toca solo esa caja");
             doc.ResetLayout();
         }
+        var everyone = doc.InScope(BatchScope.Everyone, 0);
+        var batch = doc.ApplyBatch(everyone, new() { IVs = doc.Rules.MaxIV, Level = 50, MaxFriendship = true, Nature = Nature.Timid });
+        var batched = Written(doc, work, "batch");
+        Check(label, batch.Changed != 0 && doc.DirtyCount == batch.Changed, "el lote queda pendiente por Pokémon", batch.Summary);
+        Check(label, DifferentSlots(boxes, batched.BoxInfo.Data, slot).ToHashSet().SetEquals(doc.Pokemon.Where(p => !p.IsParty && p.Dirty).Select(p => p.Index)), "el lote toca solo los lugares de quienes cambian");
+        Check(label, DifferentSlots(party, batched.PartyInfo.Data, teamSlot).ToHashSet().SetEquals(doc.Pokemon.Where(p => p.IsParty && p.Dirty).Select(p => p.Index)), "el lote toca solo esos lugares del equipo");
+        doc.UndoBatch();
+        Check(label, !doc.HasChanges && SaveDocument.Hash(doc.BuildOutput()) == hash, "deshacer el lote deja la partida idéntica");
+
         Check(label, !doc.HasChanges && SaveDocument.Hash(doc.BuildOutput()) == hash, "deshecho todo, la partida queda idéntica");
         Check(label, SaveDocument.Hash(File.ReadAllBytes(source)) == hash, "el archivo de origen no se toca");
         Console.WriteLine();
@@ -1777,7 +2112,7 @@ static class AllGames
         foreach (var (game, label) in Games)
         {
             int before = failed;
-            try { Run(game, label, work); FormsOnDisk(game, label, work); StuckForms(game, label); Abilities(game, label, work); Details(game, label, work); SaveTool(game, label, work); Trainer(game, label, work); Pokedex(game, label, work); BoxTools(game, label, work); AbilityWithForms(game, label); LanguageSwitch(game, label, work); InEveryLanguage(game, label, work); }
+            try { Run(game, label, work); FormsOnDisk(game, label, work); StuckForms(game, label); Abilities(game, label, work); Details(game, label, work); SaveTool(game, label, work); Trainer(game, label, work); Pokedex(game, label, work); BoxTools(game, label, work); Batch(game, label, work); AbilityWithForms(game, label); LanguageSwitch(game, label, work); InEveryLanguage(game, label, work); }
             catch (Exception ex) { failed++; failures.Add($"{label}: {ex.GetType().Name}: {ex.Message.Split('\n')[0]}  {ex.StackTrace?.Split('\n').FirstOrDefault()?.Trim()}"); }
             Console.WriteLine($"{(failed == before ? "ok   " : "FALLA")} {label}");
         }

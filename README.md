@@ -161,12 +161,29 @@ Rows keep their room for fields and labels. If you shrink the window and the con
 
 ## Whole-save tools
 
-The **Tools** button, next to **Find saves**, gathers everything that works on the whole save: the four tools below, the Legends: Z-A tools, the trainer and Pokédex editors, and the box sorting and undo described further down. These four open their own window beside the editor, so you can keep working while it's open. Only restoring a backup writes anything.
+The **Tools** button, next to **Find saves**, gathers everything that works on the whole save: the four tools below, **Apply to many**, the Legends: Z-A tools, the trainer and Pokédex editors, and the box sorting and undo described further down. These four open their own window beside the editor, so you can keep working while it's open. Only restoring a backup writes anything.
 
 - **Legality audit** checks every Pokémon as it would be saved, pending changes included, and lists the ones that aren't legal with the reasons. Click one to see it in the editor, and use **Check again** after fixing it.
 - **Box report** shows every Pokémon in one table: place, species, nickname, level, nature, ability, IVs, EVs, moves, held item, shiny and legality. Click a column to sort by it. **Export CSV** saves the table for a spreadsheet, using your system's list separator. IVs and EVs follow the order HP / Attack / Defense / Speed / Sp. Atk / Sp. Def.
 - **Manage backups** lists the `Backups` folder with the date, the game and what changed. **Restore** asks first, keeps a copy of the current file, puts the backup back and checks the result byte by byte. It refuses while that console's emulator is running. It also works with no save open, in case yours no longer opens.
 - **Compare saves** takes two saves of the same game and lists which Pokémon, money and items differ. It goes place by place, so a Pokémon that moved shows up in both places, and it reads the files on disk, so pending changes don't count.
+
+## Apply to many
+
+**Tools → Apply to many…** prepares one change on many Pokémon at once. Choose who it reaches (the team, the open box, all boxes or everyone), tick the changes and press **Apply**:
+
+- IVs to the maximum or to a value, and EVs to zero or to a spread.
+- Level, nature, shiny on or off, maximum friendship and Poké Ball.
+- Remove the held item, which goes back to the bag, and clear the nickname, which brings back the species name.
+- Original trainer.
+
+Each Pokémon gets its own pending change, with its dot, exactly as if you had edited it by hand. Nothing is written until **Save game**, which checks each one like any other edit.
+
+Whatever a Pokémon can't take is skipped, and the rest of its changes still apply. The summary says how many changed, and the list shows who was skipped and why. For example, an egg keeps its level, names, ball and friendship (which is its hatch counter), and a Pokémon whose form depends on its item keeps that item. On Game Boy, a value that would change a Pokémon's shininess or Unown letter is skipped too.
+
+**Undo the last batch**, in that window and in **Tools**, takes the batches back one at a time. It only reverses what the batch did: anything you edited by hand afterwards stays, on that Pokémon or on any other. If an item the batch removed is no longer in the bag, the undo is refused and the app tells you why.
+
+This was tested on all 38 games with generated saves and on real Z-A saves, but not by loading the results in each game, so try it on a copy first.
 
 ## Legends: Z-A tools
 
@@ -253,7 +270,7 @@ With the .NET 10 SDK installed, this builds the app and creates `Editrainer-wind
 .\build.ps1
 ```
 
-The save tests are in `tests`. They run on an isolated copy and never write to the save they receive. `--za-tools <save> <folder>` runs each Z-A tool through a real write and reopen on a copy of a real Z-A save. `--all-games <folder>` tests every game with generated saves, including every form of each one, in each language. `--strings src` checks that all the app's text is translated. Visual checks can be run with `Editrainer.exe --preview <save> <capture.png> <app-folder> <index> <tab>`.
+The save tests are in `tests`. They run on an isolated copy and never write to the save they receive. `--za-tools <save> <folder>` runs each Z-A tool through a real write and reopen on a copy of a real Z-A save. `--all-games <folder>` tests every game with generated saves, including every form of each one, in each language. `--batch <folder>` runs only the batch changes, in every game. `--strings src` checks that all the app's text is translated. Visual checks can be run with `Editrainer.exe --preview <save> <capture.png> <app-folder> <index> <tab>`.
 
 ## License and credits
 

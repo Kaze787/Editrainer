@@ -220,6 +220,7 @@ public sealed partial class EditorView : UserControl
         zaTool = toolsMenu.Items[^1];
         AddTool(T("Entrenador…"), () => OpenSaveTool(document!.Trainer.IsSupported, T("Esta partida no guarda un entrenador que se pueda editar aquí."), () => new TrainerDialog(document)));
         AddTool(T("Pokédex…"), () => OpenSaveTool(document!.Pokedex.CanView, T("Esta partida no tiene Pokédex."), () => new PokedexDialog(document)));
+        BuildBatchTools();
         BuildBoxTools();
     }
 
@@ -944,6 +945,7 @@ public sealed partial class EditorView : UserControl
         document.Trainer.Reset(); document.Pokedex.Reset();
         UpdateState(); ShowTrainer();
         Check(!document.HasChanges && !save.Enabled, "Undoing the tools leaves nothing pending");
+        CheckBatch(Check);
         CheckLayout(Check, "normal window");
         Window.Size = Window.MinimumSize; CheckLayout(Check, "minimum window");
         var fonts = Descendants(tabs).Select(c => (Control: c, Font: c.Font)).ToList();
@@ -1184,6 +1186,7 @@ public sealed partial class EditorView : UserControl
         }
         tabs.SelectedIndex = 0;
         CheckTools(Check, sizeLabel);
+        CheckBatchLayout(Check, sizeLabel);
     }
 
     static IEnumerable<Control> Descendants(Control parent) => parent.Controls.Cast<Control>().SelectMany(c => new[] { c }.Concat(Descendants(c)));
@@ -1206,6 +1209,7 @@ public sealed partial class EditorView : UserControl
         Window.Size = Window.MinimumSize; CheckLayout(Check, "minimum window");
         CheckToolLayouts(Check, reportPath);
         CheckBoxMessages(Check);
+        CheckBatchMessages(Check, reportPath);
         File.WriteAllText(reportPath, JsonSerializer.Serialize(new { passed = checks.Count, checks }, new JsonSerializerOptions { WriteIndented = true }));
     }
 

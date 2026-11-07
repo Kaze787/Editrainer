@@ -4,6 +4,7 @@
     <Compile Include="../src/Core.cs" Link="Core.cs" />
     <Compile Include="../src/SaveTools.cs" Link="SaveTools.cs" />
     <Compile Include="../src/BoxOperations.cs" Link="BoxOperations.cs" />
+    <Compile Include="../src/BatchEdit.cs" Link="BatchEdit.cs" />
     <Compile Include="../src/Strings.cs" Link="Strings.cs" />
     <Compile Include="../src/ZaTools.cs" Link="ZaTools.cs" />
     <Compile Include="../src/TrainerDex.cs" Link="TrainerDex.cs" />
