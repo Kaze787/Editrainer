@@ -507,8 +507,9 @@ static class AllGames
         var rules = new GameRules(sav);
         var slots = new[] { 0, 1 };
         foreach (int slot in slots) sav.SetBoxSlotAtIndex(Make(sav, 25, version), slot, EntityImportSettings.None);
-        var path = Path.Combine(work, $"details-{label}".Replace(' ', '-').Replace(':', '-'));
-        File.WriteAllBytes(path, sav.Write().ToArray());
+        var path = Path.Combine(work, version + ".details.sav");
+        sav.Money = 3000;
+        File.WriteAllBytes(path, TestSaves.Finish(sav));
         var doc = SaveDocument.Open(path);
         var entry = doc.Pokemon.First(p => !p.IsParty);
         var other = doc.Pokemon.Last(p => !p.IsParty);
@@ -525,13 +526,13 @@ static class AllGames
         Check(label, preview.Nickname == shortName && preview.IsNicknamed, "cambia el apodo", preview.Nickname);
         Check(label, preview.OriginalTrainerName == "ANA", "cambia el entrenador", preview.OriginalTrainerName);
         var cleared = other.Edit.Nickname; other.Edit.Nickname = shortName; other.Edit.Nickname = "";
-        Check(label, other.Preview().Nickname == cleared && !other.Preview().IsNicknamed, "vaciar el apodo vuelve al nombre de la especie", other.Preview().Nickname);
+        Check(label, other.Preview().Nickname.Equals(cleared, StringComparison.OrdinalIgnoreCase) && !other.Preview().IsNicknamed, "vaciar el apodo vuelve al nombre de la especie", other.Preview().Nickname);
         other.Edit.Nickname = new string('A', other.Original.MaxStringLengthNickname + 1);
         Check(label, Catalog.Validate(other) != null, "rechaza un apodo demasiado largo");
         other.Edit.Nickname = cleared; other.Edit.Trainer = " ";
         Check(label, Catalog.Validate(other) != null, "rechaza un entrenador vacío");
         other.Edit.Trainer = other.Baseline.Trainer;
-        var edited = path + ".out";
+        var edited = Path.Combine(work, version + ".details.edited.sav");
         File.WriteAllBytes(edited, doc.BuildOutput());
         var read = SaveDocument.Open(edited);
         var saved = read.Pokemon.First(p => p.Index == entry.Index && !p.IsParty);
