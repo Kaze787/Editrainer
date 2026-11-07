@@ -75,7 +75,7 @@ public sealed class GameRules
     const int ShinyDV = 10, GameBoyUnownLetters = 26, UnownLetters = 28, UnownDVBits = 6, UnownDVStep = 10;
     const ushort GriseousOrb = 112, AdamantCrystal = 1777, LustrousGlobe = 1778, GriseousCore = 1779;
     readonly HashSet<ushort> heldItems;
-    readonly string[] spanishItemNames;
+    readonly string[] spanishItemNames, englishMail;
     string[] itemNames;
     ILearnSource? learnSource;
 
@@ -85,6 +85,7 @@ public sealed class GameRules
         Version = SingleVersion(save);
         itemNames = Catalog.Names.GetItemStrings(save.Context, save.Version);
         spanishItemNames = GameInfo.GetStrings("es").GetItemStrings(save.Context, save.Version);
+        englishMail = save.Generation is >= 2 and <= 5 ? GameInfo.GetStrings("en").GetItemStrings(save.Context, save.Version) : [];
         heldItems = save is SAV9ZA ? ItemStorage9ZA.GetAllHeld().ToHashSet() : save.HeldItems.ToArray().ToHashSet();
     }
 
@@ -120,6 +121,8 @@ public sealed class GameRules
     public string ShortName => T(GameTitle(Save.Version == GameVersion.Any ? Version : Save.Version));
     public string FullName => T("Pokémon") + " " + (IsZA ? T("Leyendas: Z-A") : ShortName);
     public void RefreshNames() => itemNames = Catalog.Names.GetItemStrings(Save.Context, Save.Version);
+    public string PlaceName(SlotPlace place) => place.IsParty ? T("Equipo · {0}", place.Index + 1)
+        : T("Caja {0} · {1}", place.Index / Save.BoxSlotCount + 1, place.Index % Save.BoxSlotCount + 1);
     // A box nobody named reads as blank, or as "Box 1" whatever the game's language.
     public string BoxName(int box)
     {
@@ -130,6 +133,8 @@ public sealed class GameRules
     public bool IsStatEditable(int stat, bool iv) => !(SharesSpecial && stat == 5) && !(IsGameBoy && iv && stat == 0);
     public bool CanHold(int id) => id == 0 || id is > 0 and <= ushort.MaxValue && heldItems.Contains((ushort)id);
     public string ItemName(int id) => id >= 0 && id < itemNames.Length ? itemNames[id] : "";
+    // Up to Gen 5 a letter is kept apart from the Pokémon carrying it, tied to its place in the team.
+    public bool IsMail(int id) => id > 0 && id < englishMail.Length && englishMail[id].EndsWith("mail", StringComparison.OrdinalIgnoreCase);
     public ILearnSource LearnSource => learnSource ??= GameData.GetLearnSource(Version);
     // PKHeX 26.10.18 overruns its special tutor data for these three; every other source works.
     public MoveSourceType MoveSources => Version is GameVersion.D or GameVersion.P or GameVersion.Pt
@@ -245,17 +250,22 @@ public sealed class GameRules
     };
 }
 
-public sealed class PokemonEntry(GameRules rules, bool party, int index, PKM pokemon)
+public sealed class PokemonEntry(GameRules rules, bool party, int index, PKM pokemon, bool isNew = false)
 {
     public GameRules Rules { get; } = rules;
-    public bool IsParty { get; } = party;
-    public int Index { get; } = index;
+    public bool IsParty { get; internal set; } = party;
+    public int Index { get; internal set; } = index;
+    public SlotPlace Place => new(IsParty, Index);
+    /// <summary>Where the file keeps it. A clone or an import is nowhere yet.</summary>
+    public SlotPlace? Origin { get; } = isNew ? null : new(party, index);
+    public bool IsNew => Origin == null;
+    public bool Moved => Origin != Place;
     public PKM Original { get; } = pokemon;
     public Draft Baseline { get; } = Draft.From(pokemon);
     public Draft Edit { get; set; } = Draft.From(pokemon);
     public bool Dirty => !Edit.SameAs(Baseline);
     public string SpeciesName => Catalog.Names.specieslist[Original.Species];
-    public string Location => IsParty ? T("Equipo · {0}", Index + 1) : T("Caja {0} · {1}", Index / Rules.Save.BoxSlotCount + 1, Index % Rules.Save.BoxSlotCount + 1);
+    public string Location => Rules.PlaceName(Place);
     public string DisplayName => string.IsNullOrWhiteSpace(Edit.Nickname) ? SpeciesName : Edit.Nickname;
     public string ImageVariant => Catalog.ImageVariant(Rules, Original.Species, Edit.Form, Edit.FormArgument);
     public override string ToString() => $"{DisplayName} {SpeciesName} {Location}";
@@ -287,9 +297,12 @@ public static class Catalog
         return balls;
     }
 
-    public static LegalityCheck CheckLegality(PokemonEntry e)
+    public static LegalityCheck CheckLegality(PokemonEntry e) => CheckLegality(e, e.Preview());
+
+    /// <summary>For a preview taken beforehand, which can be judged on another thread: this reads nothing the editor changes.</summary>
+    public static LegalityCheck CheckLegality(PokemonEntry e, PKM preview)
     {
-        var analysis = new LegalityAnalysis(e.Preview(), e.Rules.Personal, e.IsParty ? StorageSlotType.Party : StorageSlotType.Box);
+        var analysis = new LegalityAnalysis(preview, e.Rules.Personal, e.IsParty ? StorageSlotType.Party : StorageSlotType.Box);
         return new(analysis.Valid, analysis.Report(Strings.Current.GameData));
     }
 
@@ -617,7 +630,7 @@ public static class Catalog
     }
 }
 
-public sealed class SaveDocument
+public sealed partial class SaveDocument
 {
     const int SmallestSave = 0x2000, LargestSave = 64_000_000;
 
@@ -635,15 +648,21 @@ public sealed class SaveDocument
     public SaveFile Save { get; private set; } = null!;
     public GameRules Rules { get; private set; } = null!;
     public SAV9ZA? ZaSave => Save as SAV9ZA;
+    public ZaEdits? Za { get; private set; }
     public List<PokemonEntry> Pokemon { get; private set; } = [];
     public List<BagItem> Items { get; private set; } = [];
     readonly Dictionary<ushort, int> itemChanges = [];
     public IReadOnlyDictionary<ushort, int> ItemChanges => itemChanges;
     public long Money { get; set; }
     public bool MoneyChanged => Money != Save.Money;
-    public bool HasChanges => DirtyCount != 0 || MoneyChanged || itemChanges.Count != 0;
+    public bool HasChanges => DirtyCount != 0 || MoneyChanged || itemChanges.Count != 0 || Za?.HasChanges == true || ToolChangeCount != 0 || LayoutChanged;
     public int ResourceChangeCount => (MoneyChanged ? 1 : 0) + itemChanges.Count;
     public int DirtyCount => Pokemon.Count(p => p.Dirty);
+    TrainerEditor? trainer;
+    PokedexEditor? pokedex;
+    public TrainerEditor Trainer => trainer ??= new(Save);
+    public PokedexEditor Pokedex => pokedex ??= new(Save);
+    public int ToolChangeCount => (trainer?.Changed == true ? 1 : 0) + (pokedex?.ChangeCount ?? 0);
     public const int TeamSize = 6;
     public int BoxCount => Save.HasBox ? Save.BoxCount : 0;
     public int OpeningBox
@@ -657,6 +676,11 @@ public sealed class SaveDocument
     }
     public int BoxOf(PokemonEntry entry) => entry.Index / Save.BoxSlotCount;
     public static string Hash(byte[] data) => Convert.ToHexString(SHA256.HashData(data));
+
+    /// <summary>Backups are folders named after the moment they were made, so they sort by date.</summary>
+    public const string BackupStamp = "yyyy-MM-dd_HHmmss_fff";
+    public static string NewBackupFolder(string root) => Path.Combine(root,
+        DateTime.Now.ToString(BackupStamp, System.Globalization.CultureInfo.InvariantCulture) + "_" + Guid.NewGuid().ToString("N")[..6]);
 
     /// <summary>The team's six places, in order. A place with nobody in it is null.</summary>
     public List<PokemonEntry?> TeamSlots()
@@ -687,7 +711,17 @@ public sealed class SaveDocument
             .OrderBy(x => x.Name, StringComparer.CurrentCultureIgnoreCase).ToList();
     }
 
-    public static SaveDocument Open(string path)
+    /// <summary>Opens a save for editing. The legality rules and the Showdown text then follow this one.</summary>
+    public static SaveDocument Open(string path, Random? random = null)
+    {
+        var document = Read(path);
+        if (document.ZaSave is { } game) document.Za = new ZaEdits(document, game, random);
+        document.Activate();
+        return document;
+    }
+
+    /// <summary>Reads a save without making it the open one, for what only looks at it.</summary>
+    public static SaveDocument Read(string path)
     {
         var info = new FileInfo(path);
         if (!info.Exists || info.Length is < SmallestSave or > LargestSave)
@@ -701,12 +735,11 @@ public sealed class SaveDocument
         var boxed = save.HasBox ? save.BoxData.Select((p, i) => (p, i)).Where(x => x.p.Species != 0).Select(x => new PokemonEntry(rules, false, x.i, x.p)) : [];
         var entries = party.Concat(boxed).ToList();
         if (save is SAV9ZA && entries.Any(e => !e.Original.ChecksumValid)) throw new InvalidOperationException(T("La partida contiene un Pokémon con datos dañados."));
+        var damaged = entries.Where(e => !e.Original.ChecksumValid).Select(e => e.Place).ToHashSet();
         entries = entries.Where(e => e.Original.ChecksumValid).ToList();   // older games can hold "bad eggs": leave those alone
         var items = save is SAV9ZA za ? ReadBagZA(za, rules) : ReadBag(save, rules);
-        var document = new SaveDocument { FilePath = Path.GetFullPath(path), OriginalBytes = bytes, OriginalHash = Hash(bytes), Save = save, Rules = rules,
-            Pokemon = entries, Money = save.Money, Items = items.OrderBy(x => x.Name, StringComparer.CurrentCultureIgnoreCase).ToList() };
-        document.Activate();
-        return document;
+        return new SaveDocument { FilePath = Path.GetFullPath(path), OriginalBytes = bytes, OriginalHash = Hash(bytes), Save = save, Rules = rules,
+            Pokemon = entries, loaded = entries.ToList(), unreadable = damaged, Money = save.Money, Items = items.OrderBy(x => x.Name, StringComparer.CurrentCultureIgnoreCase).ToList() };
     }
 
     // The legality rules and the Showdown text ask PKHeX which save is open.
@@ -760,7 +793,8 @@ public sealed class SaveDocument
         return items.Values.ToList();
     }
 
-    int HeldCount(ushort id, bool original = false) => Pokemon.Count(p => (original ? p.Baseline.HeldItem : p.Edit.HeldItem) == id);
+    // What was held counts whoever has left since: their item came back to the bag with them.
+    int HeldCount(ushort id, bool original = false) => original ? loaded.Count(p => p.Baseline.HeldItem == id) : Pokemon.Count(p => p.Edit.HeldItem == id);
     int OriginalOwned(ushort id) => (Items.FirstOrDefault(i => i.Id == id)?.OriginalCount ?? 0)
         + (IsMegaStone(id) ? 0 : HeldCount(id, true));
 
@@ -880,7 +914,7 @@ public sealed class SaveDocument
     public void ResetResources()
     {
         var previous = itemChanges.ToArray(); long previousMoney = Money; Money = Save.Money; itemChanges.Clear();
-        if (ValidateSupply() is not { } error) return;
+        if (ValidateSupply() is not { } error) { Za?.ForgetMachines(); return; }
         Money = previousMoney; foreach (var entry in previous) itemChanges[entry.Key] = entry.Value;
         throw new InvalidOperationException(T("Retira los objetos que acabas de equipar antes de deshacer la bolsa.") + " " + error);
     }
@@ -919,8 +953,11 @@ public sealed class SaveDocument
     Dictionary<ushort, int> EffectiveItemChanges()
     {
         var touched = itemChanges.Keys.Concat(Pokemon.Where(p => p.Edit.HeldItem != p.Baseline.HeldItem)
-            .SelectMany(p => new[] { p.Edit.HeldItem, p.Baseline.HeldItem }).Where(id => id != 0).Select(id => (ushort)id)).ToHashSet();
-        return touched.ToDictionary(id => id, GetItemCount);
+            .SelectMany(p => new[] { p.Edit.HeldItem, p.Baseline.HeldItem }).Where(id => id != 0).Select(id => (ushort)id))
+            .Concat(ItemsOfDeleted()).ToHashSet();
+        var changes = touched.ToDictionary(id => id, GetItemCount);
+        if (Za?.PendingScrews is { } screws) changes[ColorfulScrew9a.ColorfulScrewItemIndex] = screws;
+        return changes;
     }
 
     public string? ValidateEdits()
@@ -928,7 +965,7 @@ public sealed class SaveDocument
         if (Money < 0 || Money > Rules.MaxMoney) return T("El dinero debe estar entre 0 y {0:N0}.", Rules.MaxMoney);
         if (Pokemon.Any(p => p.Edit.HeldItem != p.Baseline.HeldItem && p.Edit.HeldItem != 0 && !Items.Any(i => i.Id == p.Edit.HeldItem)))
             return T("Un Pokémon tiene preparado un objeto que no está disponible en esta partida.");
-        return Pokemon.Where(p => p.Dirty).Select(Catalog.Validate).FirstOrDefault(error => error != null) ?? ValidateSupply();
+        return Pokemon.Where(p => p.Dirty).Select(Catalog.Validate).FirstOrDefault(error => error != null) ?? LayoutError() ?? ValidateSupply() ?? Za?.Validate() ?? trainer?.Validate();
     }
 
     public byte[] BuildOutput() => ZaSave is { } za ? BuildZA(za) : Build();
@@ -944,24 +981,14 @@ public sealed class SaveDocument
         var effectiveItems = EffectiveItemChanges();
         if (MoneyChanged) output.Money = (uint)Money;
         if (effectiveItems.Count != 0) WriteBag(output, effectiveItems);
-        foreach (var e in Pokemon.Where(x => x.Dirty))
-        {
-            var p = Catalog.Apply(e);
-            if (e.IsParty) output.SetPartySlotAtIndex(p, e.Index, EntityImportSettings.None);
-            else output.SetBoxSlotAtIndex(p, e.Index, EntityImportSettings.None);
-        }
+        WriteStorage(output);
+        trainer?.WriteTo(output); pokedex?.WriteTo(output);
         var bytes = output.Write().ToArray();
         if (bytes.Length != OriginalBytes.Length) throw new InvalidOperationException(T("Cambió el tamaño de la partida."));
         var reopened = Reopen(bytes);
-        if (reopened.GetType() != Save.GetType() || reopened.PartyCount != Save.PartyCount)
-            throw new InvalidOperationException(T("Cambió la estructura de la partida."));
+        if (reopened.GetType() != Save.GetType()) throw new InvalidOperationException(T("Cambió la estructura de la partida."));
         if (reopened.Money != (uint)Money) throw new InvalidOperationException(T("El dinero guardado no coincide con el solicitado."));
-        foreach (var e in Pokemon)
-        {
-            var actual = e.IsParty ? reopened.GetPartySlotAtIndex(e.Index) : reopened.GetBoxSlotAtIndex(e.Index);
-            if (!SamePokemon(actual, e.Dirty ? Catalog.Apply(e) : e.Original))
-                throw new InvalidOperationException(T("No se pudo comprobar {0} después de guardar.", e.DisplayName));
-        }
+        VerifyStorage(reopened);
         var bag = reopened.Inventory;
         foreach (var item in Items)
         {
@@ -969,7 +996,14 @@ public sealed class SaveDocument
             int expected = effectiveItems.TryGetValue(item.Id, out var count) ? count : item.OriginalCount;
             if (actual != expected) throw new InvalidOperationException(T("No se pudo comprobar {0} después de guardar.", item.Name));
         }
+        CheckTools(reopened);
         return bytes;
+    }
+
+    void CheckTools(SaveFile reopened)
+    {
+        if (trainer?.Matches(reopened) == false) throw new InvalidOperationException(T("No se pudieron comprobar los datos del entrenador después de guardar."));
+        if (pokedex?.FirstDifference(reopened) is { } species) throw new InvalidOperationException(T("No se pudo comprobar {0} después de guardar.", Catalog.Names.specieslist[species]));
     }
 
     void WriteBag(SaveFile output, Dictionary<ushort, int> changes)
@@ -1019,34 +1053,16 @@ public sealed class SaveDocument
             if (ItemStorage9ZA.IsOrb(change.Key) && HeldCount(change.Key) != 0) { item.IsNew = false; item.IsNewNotify = false; }
             item.Write(InventoryPouch9a.GetItemSpan(output.Items.Data, change.Key));
         }
-        foreach (var e in Pokemon.Where(x => x.Dirty))
-        {
-            var p = Catalog.Apply(e);
-            if (e.IsParty) output.SetPartySlotAtIndex(p, e.Index, EntityImportSettings.None);
-            else output.SetBoxSlotAtIndex(p, e.Index, EntityImportSettings.None);
-        }
+        WriteStorage(output);
+        Za?.ApplyTo(output);
+        trainer?.WriteTo(output); pokedex?.WriteTo(output);
         var bytes = output.Write().ToArray();
         if (bytes.Length != OriginalBytes.Length || !SwishCrypto.GetIsHashValid(bytes))
             throw new InvalidOperationException(T("No se pudo verificar la integridad de la partida editada."));
         var reopened = (SAV9ZA?)SaveUtil.GetSaveFile(bytes.ToArray()) ?? throw new InvalidOperationException(T("No se pudo volver a abrir la partida editada."));
-        if (reopened.PartyCount != original.PartyCount || reopened.AllBlocks.Count != original.AllBlocks.Count)
-            throw new InvalidOperationException(T("Cambió la estructura de la partida."));
-        var allowedBlocks = new HashSet<uint>();
-        void AllowBlock(ReadOnlySpan<byte> data)
-        {
-            foreach (var block in original.AllBlocks) if (block.Data.SequenceEqual(data)) allowedBlocks.Add(block.Key);
-        }
-        if (Pokemon.Any(p => p.Dirty && p.IsParty)) AllowBlock(original.PartyInfo.Data);
-        if (Pokemon.Any(p => p.Dirty && !p.IsParty)) AllowBlock(original.BoxInfo.Data);
-        if (MoneyChanged) allowedBlocks.Add(SaveBlockAccessor9ZA.KMoney);
-        if (effectiveItems.Count != 0) AllowBlock(original.Items.Data);
-        for (int i = 0; i < original.AllBlocks.Count; i++)
-        {
-            var a = original.AllBlocks[i]; var b = reopened.AllBlocks[i];
-            if (a.Key != b.Key || a.Type != b.Type || a.SubType != b.SubType || a.Data.Length != b.Data.Length || !a.Data.SequenceEqual(b.Data) && !allowedBlocks.Contains(a.Key))
-                throw new InvalidOperationException(T("Se detectó un cambio fuera de los datos que editaste."));
-        }
+        VerifyBlocks(reopened);
         if (reopened.Money != (uint)Money) throw new InvalidOperationException(T("El dinero guardado no coincide con el solicitado."));
+        Za?.Verify(reopened);
         var oldItems = original.Items.Data; var newItems = reopened.Items.Data;
         for (int offset = 0; offset < oldItems.Length; offset++)
             if (oldItems[offset] != newItems[offset] && !effectiveItems.ContainsKey((ushort)(offset / InventoryItem9a.SIZE)))
@@ -1060,19 +1076,35 @@ public sealed class SaveDocument
             if (ItemStorage9ZA.IsMegaStone(change.Key) && actual.IsHeld != (HeldCount(change.Key) != 0))
                 throw new InvalidOperationException(T("No se pudo verificar la asignación de una megapiedra."));
         }
-        foreach (var e in Pokemon)
-        {
-            var actual = e.IsParty ? reopened.GetPartySlotAtIndex(e.Index) : reopened.GetBoxSlotAtIndex(e.Index);
-            var expected = e.Dirty ? Catalog.Apply(e) : e.Original;
-            if (!actual.ChecksumValid || !actual.Data.SequenceEqual(expected.Data))
-                throw new InvalidOperationException(T("No se pudo comprobar {0} después de guardar.", e.DisplayName));
-        }
-        // Check every empty box slot as well, so editing never adds or removes Pokémon.
-        var beforeBoxes = original.BoxData; var afterBoxes = reopened.BoxData;
-        for (int i = 0; i < beforeBoxes.Count; i++)
-            if (beforeBoxes[i].Species == 0 && !beforeBoxes[i].Data.SequenceEqual(afterBoxes[i].Data))
-                throw new InvalidOperationException(T("Se modificó un espacio vacío de las cajas."));
+        VerifyStorage(reopened);
+        CheckTools(reopened);
         return bytes;
+    }
+
+    /// <summary>Only the blocks this save set out to change may differ, whatever else happened on the way.</summary>
+    public void VerifyBlocks(SAV9ZA reopened)
+    {
+        var original = ZaSave!;
+        if (reopened.AllBlocks.Count != original.AllBlocks.Count) throw new InvalidOperationException(T("Cambió la estructura de la partida."));
+        var allowedBlocks = new HashSet<uint>();
+        void AllowBlock(ReadOnlySpan<byte> data)
+        {
+            foreach (var block in original.AllBlocks) if (block.Data.SequenceEqual(data)) allowedBlocks.Add(block.Key);
+        }
+        if (ChangedPlaces.Any(p => p.IsParty)) AllowBlock(original.PartyInfo.Data);
+        if (ChangedPlaces.Any(p => !p.IsParty)) AllowBlock(original.BoxInfo.Data);
+        if (MoneyChanged) allowedBlocks.Add(SaveBlockAccessor9ZA.KMoney);
+        if (EffectiveItemChanges().Count != 0) AllowBlock(original.Items.Data);
+        if (Za != null) allowedBlocks.UnionWith(Za.ChangedBlocks());
+        if (trainer?.ChangesStatus == true) AllowBlock(original.MyStatus.Data);
+        if (trainer?.ChangesClock == true) allowedBlocks.Add(SaveBlockAccessor9ZA.KPlayedSeconds);
+        if (pokedex?.ChangeCount > 0) AllowBlock(original.Zukan.Data);
+        for (int i = 0; i < original.AllBlocks.Count; i++)
+        {
+            var a = original.AllBlocks[i]; var b = reopened.AllBlocks[i];
+            if (a.Key != b.Key || a.Type != b.Type || a.SubType != b.SubType || a.Data.Length != b.Data.Length || !a.Data.SequenceEqual(b.Data) && !allowedBlocks.Contains(a.Key))
+                throw new InvalidOperationException(T("Se detectó un cambio fuera de los datos que editaste."));
+        }
     }
 
     public string Write(string destination, string backupRoot, Func<SaveFile, string?>? findEmulator = null)
@@ -1084,7 +1116,7 @@ public sealed class SaveDocument
         var bytes = BuildOutput();
         destination = Path.GetFullPath(destination);
         var existing = File.Exists(destination) ? File.ReadAllBytes(destination) : null;
-        var backupDir = Path.Combine(backupRoot, DateTime.Now.ToString("yyyy-MM-dd_HHmmss_fff") + "_" + Guid.NewGuid().ToString("N")[..6]);
+        var backupDir = NewBackupFolder(backupRoot);
         Directory.CreateDirectory(backupDir);
         var backupFile = Path.Combine(backupDir, Path.GetFileName(FilePath) + ".original");
         File.WriteAllBytes(backupFile, OriginalBytes);
@@ -1093,10 +1125,16 @@ public sealed class SaveDocument
             game = Rules.FullName, source = FilePath, destination, originalHash = OriginalHash, editedHash = Hash(bytes),
             money = new { before = Save.Money, after = Money },
             items = EffectiveItemChanges().Select(change => new { id = change.Key, name = Rules.ItemName(change.Key),
-                before = Items.FirstOrDefault(i => i.Id == change.Key)?.OriginalCount ?? 0, after = change.Value }),
+                before = Items.FirstOrDefault(i => i.Id == change.Key)?.OriginalCount ?? (int)(ZaSave?.Items.GetItemQuantity(change.Key) ?? 0), after = change.Value }),
             pokemon = Pokemon.Where(x => x.Dirty).Select(e => new {
                 e.DisplayName, e.SpeciesName, e.Location, before = e.Baseline, after = e.Edit,
             }),
+            za = Za?.Summary(),
+            trainer = trainer?.Changed == true ? new { before = trainer.Original, after = trainer.Edit } : null,
+            pokedex = pokedex?.Changes.Select(c => new { c.Species, name = Catalog.Names.specieslist[c.Species], before = c.Before, after = c.After }),
+            moved = Pokemon.Where(x => x.Moved && !x.IsNew).Select(e => new { e.DisplayName, e.SpeciesName, before = Rules.PlaceName(e.Origin!.Value), after = e.Location }),
+            added = Pokemon.Where(x => x.IsNew).Select(e => new { e.DisplayName, e.SpeciesName, e.Location }),
+            removed = Deleted.Select(e => new { e.DisplayName, e.SpeciesName, Location = Rules.PlaceName(e.Origin!.Value) }),
         }, new JsonSerializerOptions { WriteIndented = true }));
         if (Hash(File.ReadAllBytes(backupFile)) != OriginalHash) throw new IOException(T("No se pudo verificar el respaldo."));
         var temp = destination + ".editrainer-" + Guid.NewGuid().ToString("N") + ".tmp";

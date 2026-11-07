@@ -35,12 +35,13 @@ static class Program
         Trace("Configuring Windows Forms");
         ApplicationConfiguration.Initialize();
         Trace("Configuration complete");
-        bool utility = args.Length > 0 && args[0] is "--preview" or "--ui-test" or "--layout-test" or "--settings-test" or "--settings-preview";
+        bool utility = args.Length > 0 && args[0] is "--preview" or "--ui-test" or "--layout-test" or "--settings-test" or "--settings-preview" or "--za-preview";
         string? path = utility ? args[1] : args.FirstOrDefault(File.Exists);
         string root = utility && args.Length > 3 ? args[3] : AppContext.BaseDirectory;
         var settings = utility ? UtilitySettings(args) : AppSettings.Load(root);
         settings.Apply();
         if (utility && args[0] == "--settings-preview") { SettingsDialog.SaveImage(settings, args[2]); return; }
+        if (utility && args[0] == "--za-preview") { ZaToolsDialog.SaveImage(SaveDocument.Open(args[1]), args[2], int.Parse(args[6])); return; }
         using var form = new MainForm(path, root, settings);
         if (!utility && args.Contains("--items")) form.Shown += (_, _) => form.View.OpenResources();
         if (!utility && args.Contains("--equipment")) form.Shown += (_, _) => form.View.OpenEquipment();
@@ -64,6 +65,7 @@ static class Program
                     if (args[0] == "--ui-test") form.View.RunInteractionChecks(args[2]);
                     else if (args[0] == "--layout-test") form.View.RunLayoutChecks(args[2], form.Settings);
                     else if (args[0] == "--settings-test") form.RunSettingsChecks(args[2]);
+                    else if (args.Length > 8 && args[8] is "trainer" or "pokedex") form.View.CaptureTool(args[2], args[8]);
                     else form.View.CaptureScreenshot(args[2], args.Length > 4 ? int.Parse(args[4]) : 0, args.Length > 5 ? int.Parse(args[5]) : 0, args.Length > 8 && args[8] == "shiny");
                 } catch (Exception ex) {
                     File.WriteAllText(args[2] + ".error.txt", ex.ToString());

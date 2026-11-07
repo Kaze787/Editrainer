@@ -7,6 +7,21 @@ if (args[0] == "--all-games")
     AllGames.Run(args[1]);
     return;
 }
+if (args[0] == "--tools")
+{
+    AllGames.RunTools(args[1]);
+    return;
+}
+if (args[0] == "--boxes")
+{
+    AllGames.RunBoxes(args[1], args.ElementAtOrDefault(2));
+    return;
+}
+if (args[0] == "--box-save")
+{
+    AllGames.RealSave(Path.GetFullPath(args[1]), Path.GetFullPath(args[2]));
+    return;
+}
 if (args[0] == "--strings")
 {
     AllGames.CheckStrings(args[1]);
@@ -15,6 +30,11 @@ if (args[0] == "--strings")
 if (args[0] == "--forms")
 {
     AllGames.ListForms(args[1]);
+    return;
+}
+if (args[0] == "--za-tools")
+{
+    ZaChecks.Run(args[1], args[2]);
     return;
 }
 if (args[0] == "--catalog")
@@ -228,6 +248,50 @@ var handlerOutput = Path.Combine(work, "main.handled-friendship-out"); File.Writ
 var handlerResult = SaveDocument.Open(handlerOutput).Pokemon[0].Original;
 Check(handlerResult.HandlingTrainerFriendship == 255 && handlerResult.OriginalTrainerFriendship == 33 && handlerResult.CurrentHandler == 1,
     "Friendship editing changes the current handler's value and preserves the other trainer's value");
+// The trainer and the Pokédex touch their own blocks and nothing else. This save is played on, so what it holds is read from it.
+var toolDoc = SaveDocument.Open(source);
+var card = toolDoc.Trainer.Original; var dex = toolDoc.Pokedex;
+Check(card.Name.Length != 0 && card.Hours + card.Minutes != 0 && toolDoc.Trainer.IsSupported && !toolDoc.Trainer.HasBadges && toolDoc.Trainer.HasGender, "Reads the real trainer, whose game has no badges");
+int seenBefore = dex.Entries.Count(toolDoc.Save.GetSeen), caughtBefore = dex.Entries.Count(toolDoc.Save.GetCaught);
+Check(dex.CanEdit && dex.CanClear && dex.Entries.Count != 0 && dex.SeenCount == seenBefore && dex.CaughtCount == caughtBefore, "Reads the real Pokédex");
+Check(SaveDocument.Hash(toolDoc.BuildOutput()) == protectedHash && !toolDoc.HasChanges, "Reading the trainer and the Pokédex keeps the save byte-for-byte");
+var unseen = dex.Entries.Where(s => !dex.Get(s).Seen).ToList(); var owned = dex.Entries.Where(s => dex.Get(s).Caught).ToList();
+Check(unseen.Count >= 2 && owned.Count >= 2, "The save has species to mark and to clear");
+ushort seenOnly = unseen[0], newlyCaught = unseen[1], uncaught = owned[0], emptied = owned[^1];
+dex.Set(seenOnly, true, false); dex.Set(newlyCaught, true, true); dex.Set(uncaught, true, false); dex.Set(emptied, false, false);
+toolDoc.Trainer.Edit = card with { Name = "Ana", Gender = (byte)(1 - card.Gender), Tid = 123456, Sid = 789, Hours = card.Hours + 3 };
+var toolPath = Path.Combine(work, "main.tools-test"); File.WriteAllBytes(toolPath, toolDoc.BuildOutput());
+var toolSaved = SaveDocument.Open(toolPath);
+var realBefore = (SAV9ZA)toolDoc.Save; var realAfter = (SAV9ZA)toolSaved.Save;
+Check(toolSaved.Trainer.Original == toolDoc.Trainer.Edit && realAfter.OT == "Ana" && realAfter.ID32 == 789_123_456, "Trainer edits persist in the game's six-digit format");
+Check(realAfter.Played.PlayedFractionalSeconds == realBefore.Played.PlayedFractionalSeconds && realAfter.Played.OverworldSeconds == realBefore.Played.OverworldSeconds, "Play time keeps its fraction and leaves the overworld clock alone");
+Check(toolSaved.Pokedex.Get(seenOnly) == new DexState(true, false) && toolSaved.Pokedex.Get(newlyCaught) == new DexState(true, true)
+    && toolSaved.Pokedex.Get(uncaught) == new DexState(true, false) && toolSaved.Pokedex.Get(emptied) == new DexState(false, false), "Pokédex edits persist after exporting and reopening");
+int seenAfter = dex.Entries.Count(realAfter.GetSeen), caughtAfter = dex.Entries.Count(realAfter.GetCaught);
+Check(seenAfter == seenBefore + 1 && caughtAfter == caughtBefore - 1, "No other species changes");
+var sighted = realAfter.Zukan.GetEntry(seenOnly);
+var sightedInfo = realAfter.Personal[seenOnly];
+var sightedGender = sightedInfo.Genderless ? Gender.Genderless : sightedInfo.OnlyFemale ? Gender.Female : Gender.Male;
+Check(sighted.IsSeen && sighted.GetIsGenderSeen((byte)sightedGender) && !sighted.GetDisplayIsNew() && !sighted.IsCaught
+    && sighted.DisplayGender == sighted.GetDisplayGender(sightedGender, seenOnly, sighted.DisplayForm), "A seen species looks like a sighting in a played save");
+var registered = realAfter.Zukan.GetEntry(newlyCaught);
+Check(registered.IsCaught && registered.GetLanguageFlag(realAfter.Language) && registered.GetDisplayIsNew(), "A caught species looks like a catch in a played save");
+var released = realAfter.Zukan.GetEntry(uncaught);
+Check(released.IsSeen && !released.IsCaught && !released.GetLanguageFlag(realAfter.Language) && !released.GetDisplayIsNew(), "Clearing caught keeps what was seen");
+var wiped = realAfter.Zukan.GetEntry(emptied);
+Check(!wiped.IsSeen && !wiped.IsCaught && wiped.DisplayForm == 0, "Clearing seen empties the entry");
+var changedBlocks = realBefore.AllBlocks.Zip(realAfter.AllBlocks).Where(b => !b.First.Data.SequenceEqual(b.Second.Data)).Select(b => b.First.Key).ToList();
+Check(changedBlocks.Count == 3 && changedBlocks.Contains(SaveBlockAccessor9ZA.KPlayedSeconds)
+    && realBefore.AllBlocks.Count(b => changedBlocks.Contains(b.Key) && b.Data.Length == realBefore.MyStatus.Data.Length) == 1
+    && realBefore.AllBlocks.Count(b => changedBlocks.Contains(b.Key) && b.Data.Length == realBefore.Zukan.Data.Length) == 1, "Only the trainer, clock and Pokédex blocks change");
+toolDoc.Trainer.Reset(); dex.Reset();
+Check(!toolDoc.HasChanges && SaveDocument.Hash(toolDoc.BuildOutput()) == protectedHash, "Undoing the trainer and the Pokédex restores a byte-identical save");
+var nothingNew = SaveDocument.Open(source); nothingNew.Trainer.Edit = card with { Name = "Abcdefghijklmn" };
+Reject(() => nothingNew.BuildOutput(), "Rejects a trainer name the game can't store");
+var fullDex = SaveDocument.Open(source); fullDex.Pokedex.MarkAll(caught: true);
+var fullPath = Path.Combine(work, "main.full-dex-test"); File.WriteAllBytes(fullPath, fullDex.BuildOutput());
+var fullRead = SaveDocument.Open(fullPath).Pokedex;
+Check(fullRead.CaughtCount == fullRead.Entries.Count && fullRead.SeenCount == fullRead.Entries.Count, "The whole Pokédex can be marked as caught");
 // Test the writer only on an isolated copy, never on the user's active save.
 var copy = Path.Combine(work, "main.test"); File.WriteAllBytes(copy, File.ReadAllBytes(source));
 var tempDoc = SaveDocument.Open(copy); tempDoc.Pokemon[0].Edit.IVs[0] = 12;
@@ -235,6 +299,12 @@ var backup = tempDoc.Write(copy, Path.Combine(work, "Backups"), _ => null);
 Check(SaveDocument.Hash(File.ReadAllBytes(Path.Combine(backup, "main.test.original"))) == protectedHash, "Creates exact verified backup before overwriting");
 var actual = SaveDocument.Open(copy);
 Check(actual.Pokemon[0].Original.IV_HP == 12 && actual.DirtyCount == 0, "Atomic write and reopening retain requested edit");
+ushort backedUp = actual.Pokedex.Entries.First(s => !actual.Pokedex.Get(s).Caught);
+actual.Trainer.Edit = actual.Trainer.Original with { Name = "Ana" }; actual.Pokedex.Set(backedUp, true, true);
+var toolBackup = actual.Write(copy, Path.Combine(work, "Backups"), _ => null);
+var toolNotes = File.ReadAllText(Path.Combine(toolBackup, "cambios.json"));
+Check(toolNotes.Contains("\"Ana\"") && toolNotes.Contains($"\"Species\": {backedUp}") && SaveDocument.Open(copy).Save.OT == "Ana", "Writer notes the trainer and the Pokédex in the backup");
+actual = SaveDocument.Open(copy);
 actual.Money = 500_000; actual.SetItemCount(1128, 250);
 var resourceBackup = actual.Write(copy, Path.Combine(work, "Backups"), _ => null);
 var savedResources = SaveDocument.Open(copy);
@@ -247,3 +317,6 @@ Reject(() => SaveDocument.Open(copy), "Rejects corrupted input save");
 Check(SaveDocument.Hash(File.ReadAllBytes(source)) == protectedHash, "User's real save remains untouched by tests");
 File.WriteAllText(Path.Combine(work, "results.txt"), string.Join(Environment.NewLine, results));
 Console.WriteLine($"{results.Count} checks passed.");
+if (doc.ZaSave != null) ZaChecks.Run(source, Path.Combine(work, "za"));
+else Console.WriteLine("Z-A checks skipped: this save is from another game. Run them on a Z-A save with --za-tools.");
+AllGames.RealSave(source, Path.Combine(work, "boxes"));

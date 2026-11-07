@@ -159,15 +159,81 @@ Click **Save game** to apply the money, item and Pokémon changes together, afte
 
 Rows keep their room for fields and labels. If you shrink the window and the content doesn't fit, you can scroll inside each tab.
 
+## Whole-save tools
+
+The **Tools** button, next to **Find saves**, gathers everything that works on the whole save: the four tools below, the Legends: Z-A tools, the trainer and Pokédex editors, and the box sorting and undo described further down. These four open their own window beside the editor, so you can keep working while it's open. Only restoring a backup writes anything.
+
+- **Legality audit** checks every Pokémon as it would be saved, pending changes included, and lists the ones that aren't legal with the reasons. Click one to see it in the editor, and use **Check again** after fixing it.
+- **Box report** shows every Pokémon in one table: place, species, nickname, level, nature, ability, IVs, EVs, moves, held item, shiny and legality. Click a column to sort by it. **Export CSV** saves the table for a spreadsheet, using your system's list separator. IVs and EVs follow the order HP / Attack / Defense / Speed / Sp. Atk / Sp. Def.
+- **Manage backups** lists the `Backups` folder with the date, the game and what changed. **Restore** asks first, keeps a copy of the current file, puts the backup back and checks the result byte by byte. It refuses while that console's emulator is running. It also works with no save open, in case yours no longer opens.
+- **Compare saves** takes two saves of the same game and lists which Pokémon, money and items differ. It goes place by place, so a Pokémon that moved shows up in both places, and it reads the files on disk, so pending changes don't count.
+
+## Legends: Z-A tools
+
+With a Z-A save open, **Tools → Z-A tools…** gathers what only this game keeps. Everything stays pending until you press **Save game**, like any other edit, and counts towards the unsaved-changes prompt and the backup record.
+
+- **Donuts:** add donuts with up to three level 3 powers, add a shiny assortment, or remove one. New donuts are PKHeX's five-star template and fill free slots, so the ones you made stay as they are. Donuts belong to the Mega Dimension DLC.
+- **Clothing:** marks as bought what the save already has on record, kind by kind. It can't add anything else, because PKHeX has no list of Z-A's clothes, and it leaves hair and makeup alone.
+- **Points:** Royale, Infinite Royale and hyperspace survey points.
+- **Collection:** collects the Colorful Screws and the TMs on the map, marking each as taken and adding it to the bag. It only reaches places you've already visited, because a save has no record of the others. Screws stop at 100.
+
+Story progress, event flags, Mable's research, your position and your trainer pictures can't be edited here. Most event flags have no public name, so changing one would be blind.
+
+## Trainer and Pokédex
+
+**Tools** opens two windows that work on the whole save. What you change there stays pending like any other change: it's applied with **Save game**, it counts as a pending change when you close the app, and it's listed in the automatic backup. **Close** keeps what you prepared, and **Undo** discards it.
+
+**Trainer** shows the name, gender, trainer ID, secret ID, play time and badges. Each game only shows what it stores:
+
+- **Gender** appears in Crystal and from Gen 3 onwards. From Gen 6 the character's clothes and model are saved separately and don't change with it, so keep the backup at hand if you change it.
+- **IDs** follow each game: one 5-digit ID in Gen 1 and 2, a 5-digit ID and secret ID in Gen 3 to 6, and a 6-digit ID with a 4-digit secret ID from Gen 7.
+- **Badges** are one box each in Gen 1 to 6 and in Brilliant Diamond and Shining Pearl, with a second row for Kanto in Gold, Silver, Crystal, HeartGold and SoulSilver. Sword and Shield only keep how many you have. The other games don't have badges to edit.
+- Changing the name or the IDs makes the game treat the Pokémon you already have as received from another trainer.
+- Colosseum, XD and box-only saves don't have this window.
+
+**Pokédex** lists every species the open game can register. Search by name or number, tick **Seen** or **Caught**, or use **Mark all seen** and **Mark all caught**.
+
+- A caught Pokémon counts as seen, and clearing **Seen** also clears **Caught**.
+- Marking registers the species and keeps the forms, shinies and languages you already have. It isn't meant to complete them: how many forms it adds depends on the game.
+- A game can still hide what you marked until you reach that point of the story, such as species outside the regional Pokédex before you get the National one.
+- **Legends: Arceus** only adds marks, because its progress comes from research: what's already registered can't be cleared.
+- **Scarlet and Violet** saves from before version 2.0.1 keep the Pokédex in an older format. You can look at it, but not change it.
+- In **Legends: Z-A** without the DLC the list is the Lumiose Pokédex.
+- Colosseum, XD and box-only saves don't have a Pokédex.
+
+## Boxes
+
+Move your Pokémon around the way you would in the game. Like every other edit, nothing changes in your file until you press **Save game**, and each Pokémon with a pending change shows its dot.
+
+- **Move and swap:** drag a Pokémon to another place in the box or the team. If someone is already there, they swap. To reach another box, select the Pokémon, turn the page and right-click a place there: **Move here** or **Swap places**.
+- **Clone:** hold **Ctrl** while you drag, or right-click an empty place to clone the selected Pokémon there. **Clone**, on a Pokémon's own menu, uses the first free place.
+- **Delete:** right-click a Pokémon and choose **Delete**.
+- **Export and import:** right-click a Pokémon to save it as a `.pk*` file, or an empty place to bring one in. A Pokémon from another game is converted where PKHeX has a route (older to newer, Game Boy to Gen 7 or later, and between the Switch games) and refused, with the reason, where it doesn't. Eggs hatch when they change format, and the Pokédex is not updated.
+- **Sort:** in **Tools**, sort the open box by Pokédex number, level or name.
+- **Undo:** right-click any place to undo the last change, or use **Tools** to undo it or all of them.
+
+Some things stay in place on purpose, and the app tells you why when you try:
+
+- Boxes the game hasn't unlocked yet can't receive anyone, because the game wouldn't show them.
+- The team always keeps at least one Pokémon that isn't an egg, and never has gaps: whoever leaves, the rest move up, and whoever joins goes last.
+- Pokémon in a saved battle team, and your partner in Let's Go, can't be moved. Take them out of the team in the game first. Team members in Let's Go can be moved, but not deleted.
+- A Pokémon holding mail in Gen 2 to 5 stays where it is, because the letter is stored apart from it.
+- Game Boy boxes and the Let's Go storage are lists with no gaps. Taking a Pokémon out closes the gap, and one dropped on an empty place goes to the end of the list.
+- A held item goes back to the bag when its Pokémon is deleted, so the bag needs room for it. A clone takes its own unit from the bag, or arrives without the item if there is none.
+- In Legends: Z-A, a Pokémon holding a Mega Stone or an orb can't be cloned, because only one Pokémon can hold each.
+- Colosseum and XD saves can't be rearranged.
+
+Every change is checked after writing: each place of the team and the boxes has to hold exactly what it should, and nothing else may differ. This was tested on all 38 games with generated saves and byte by byte on real Z-A saves, but not by loading the results in each game, so try it on a copy first.
+
 ## Backups
 
 Backups go in the `Backups` folder, inside the app's folder. The **Open backups** link opens it. Each save includes:
 
 - `main.original` (or `<name>.sav.original`): the full save from before the edit.
-- `cambios.json`: which Pokémon and values changed.
+- `cambios.json`: which Pokémon and values changed, along with the trainer and Pokédex changes.
 - `destino.anterior`: an extra copy, if a file other than the one you opened was overwritten.
 
-To restore a backup, close the emulator, open the `.original` file and use **Save as** to store it under its original name in the emulator's save folder. To open `main.original`, choose the **All files** filter in the file selector.
+To restore a backup, use **Tools > Manage backups**. To do it by hand, close the emulator, open the `.original` file and use **Save as** to store it under its original name in the emulator's save folder. To open `main.original`, choose the **All files** filter in the file selector.
 
 The app refuses to save values outside the game's limits, repeated or incompatible moves, and saves that changed outside the app after being opened. It also reopens and verifies the generated save before replacing the old one.
 
@@ -187,7 +253,7 @@ With the .NET 10 SDK installed, this builds the app and creates `Editrainer-wind
 .\build.ps1
 ```
 
-The save tests are in `tests`. They run on an isolated copy and never write to the save they receive. `--all-games <folder>` tests every game with generated saves, including every form of each one, in each language. `--strings src` checks that all the app's text is translated. Visual checks can be run with `Editrainer.exe --preview <save> <capture.png> <app-folder> <index> <tab>`.
+The save tests are in `tests`. They run on an isolated copy and never write to the save they receive. `--za-tools <save> <folder>` runs each Z-A tool through a real write and reopen on a copy of a real Z-A save. `--all-games <folder>` tests every game with generated saves, including every form of each one, in each language. `--strings src` checks that all the app's text is translated. Visual checks can be run with `Editrainer.exe --preview <save> <capture.png> <app-folder> <index> <tab>`.
 
 ## License and credits
 

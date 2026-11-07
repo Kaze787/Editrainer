@@ -7,7 +7,7 @@ using System.Buffers.Binary;
 /// </summary>
 static class TestSaves
 {
-    const int Gen3Size = 0x20000, Gen3Sector = 0x1000, Gen3Sectors = 14, Gen3Signature = 0x08012025;
+    const int Gen3Size = 0x20000, Gen3Sector = 0x1000, Gen3Sectors = 14, Gen3Signature = 0x08012025, Gen3LanguageMark = 6;
     const int Gen4Size = 0x80000, Gen4Partition = 0x40000;
     const uint Gen4Magic = 0x20060623, FooterBeef = 0x42454546;
     const int BeefOffset = 0x1F0;
@@ -41,6 +41,7 @@ static class TestSaves
         var type = typeof(SCBlock).GetProperty(nameof(SCBlock.Type))!;
         foreach (var block in array.AllBlocks.Where(b => b.Type == SCTypeCode.None))
             type.SetValue(block, block.Data.Length switch { 0 => SCTypeCode.Bool1, 4 => SCTypeCode.UInt32, _ => SCTypeCode.Object });
+        if (sav is SAV9ZA za) type.SetValue(za.Blocks.GetBlock(SaveBlockAccessor9ZA.KPlayedSeconds), SCTypeCode.Double);   // Z-A's clock is a real number
         return sav;
     }
 
@@ -68,6 +69,7 @@ static class TestSaves
             BinaryPrimitives.WriteUInt32LittleEndian(sector[0xFF8..], Gen3Signature);
             BinaryPrimitives.WriteUInt32LittleEndian(sector[0xFFC..], 1);
         }
+        data[Gen3LanguageMark] = 1;   // zero here marks a Japanese cartridge
         if (version is GameVersion.FR or GameVersion.LG) data[0xAC] = 1;
         else if (version == GameVersion.E)
         {

@@ -54,6 +54,7 @@ public sealed class MainForm : Form
 
     void ApplySettings(AppSettings chosen)
     {
+        view.CloseTool();
         var state = view.TakeSnapshot();
         chosen.Save(appRoot); Settings = chosen;
         Theme.WithoutRedraw(this, () => {
@@ -88,6 +89,7 @@ public sealed class MainForm : Form
         CultureInfo.CurrentUICulture = system;
 
         view.StagePendingEdits();
+        view.OpenToolForChecks(); Activate();   // the gear is in this window, so reaching it brings this window to the front
         var before = view.TakeSnapshot();
         var (window, bounds, first) = (Handle, Bounds, view);
 
@@ -96,6 +98,7 @@ public sealed class MainForm : Form
         clock.Stop();
         Check(Handle == window && Visible && Bounds == bounds, "The window stays open, in the same place");
         Check(first.IsDisposed && Controls.Count == 1 && Controls[0] == view, "Only what's inside the window is replaced");
+        Check(!Application.OpenForms.OfType<ToolWindow>().Any(), "A tool window doesn't outlive the view that opened it");
         Check(Strings.Current.Code == "fr" && Theme.IsDark && BackColor == Theme.Background, "The new language and theme are in use");
         Check(AppSettings.Load(appRoot) == Settings, "The choice is remembered");
         Check(view.ContainsFocus, "The keyboard keeps working in the new view");
