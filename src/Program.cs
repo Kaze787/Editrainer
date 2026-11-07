@@ -32,10 +32,13 @@ static class Program
 
     static void Run(string[] args)
     {
+        bool utility = args.Length > 0 && args[0] is "--preview" or "--ui-test" or "--layout-test" or "--settings-test" or "--settings-preview" or "--za-preview";
         Trace("Configuring Windows Forms");
         ApplicationConfiguration.Initialize();
+        // Nothing may wait for a click on a screen nobody is watching: whatever goes wrong ends the run and goes to its report.
+        // This has to come before the first control exists, and the dark theme creates one as it is applied.
+        if (utility) Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
         Trace("Configuration complete");
-        bool utility = args.Length > 0 && args[0] is "--preview" or "--ui-test" or "--layout-test" or "--settings-test" or "--settings-preview" or "--za-preview";
         string? path = utility ? args[1] : args.FirstOrDefault(File.Exists);
         string root = utility && args.Length > 3 ? args[3] : AppContext.BaseDirectory;
         var settings = utility ? UtilitySettings(args) : AppSettings.Load(root);
@@ -55,6 +58,7 @@ static class Program
     {
         form.RunUnattended(); form.ShowInTaskbar = false; form.StartPosition = FormStartPosition.Manual;
         form.Location = new Point(-16000, -16000);
+        Application.ThreadException += (_, e) => { Report(args, e.Exception); form.Close(); };
         form.Shown += (_, _) => {
             Trace("Shown");
             var timer = new System.Windows.Forms.Timer { Interval = 400 };
@@ -62,13 +66,14 @@ static class Program
                 timer.Stop(); timer.Dispose();
                 Trace("Timer callback");
                 try {
+                    if (form.StartupError() is { } startup) throw new InvalidOperationException(startup.Message, startup);
                     if (args[0] == "--ui-test") form.View.RunInteractionChecks(args[2]);
                     else if (args[0] == "--layout-test") form.View.RunLayoutChecks(args[2], form.Settings);
                     else if (args[0] == "--settings-test") form.RunSettingsChecks(args[2]);
                     else if (args.Length > 8 && args[8] is "trainer" or "pokedex") form.View.CaptureTool(args[2], args[8]);
                     else form.View.CaptureScreenshot(args[2], args.Length > 4 ? int.Parse(args[4]) : 0, args.Length > 5 ? int.Parse(args[5]) : 0, args.Length > 8 && args[8] == "shiny");
                 } catch (Exception ex) {
-                    File.WriteAllText(args[2] + ".error.txt", ex.ToString());
+                    Report(args, ex);
                     if (args[0] is "--ui-test" or "--layout-test" or "--settings-test") form.View.CaptureScreenshot(args[2] + ".failure.png", 1, 1);
                 }
                 form.Close();
@@ -76,4 +81,6 @@ static class Program
             timer.Start();
         };
     }
+
+    static void Report(string[] args, Exception ex) => File.WriteAllText(args[2] + ".error.txt", ex.ToString());
 }

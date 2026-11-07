@@ -748,11 +748,18 @@ public sealed partial class EditorView : UserControl
         finally { UseWaitCursor = false; }
     }
 
-    internal bool CanDiscard() => document?.HasChanges != true || MessageBox.Show(Window,
+    // An automatic run has nobody at the screen: a question gets the answer that lets it go on, and a problem goes to its report.
+    bool Unattended => Window is MainForm form && form.IsUnattended();
+    internal bool CanDiscard() => Unattended || document?.HasChanges != true || MessageBox.Show(Window,
         T("Tienes cambios sin guardar. ¿Quieres descartarlos?"), T("Cambios pendientes"), MessageBoxButtons.YesNo, MessageBoxIcon.Question,
         MessageBoxDefaultButton.Button2) == DialogResult.Yes;
     void Notify(string text) { status.Text = text; status.ForeColor = Theme.Muted; UpdateState(); }
-    void ShowError(string text) { status.Text = text; status.ForeColor = Theme.Danger; MessageBox.Show(Window, text, "Editrainer", MessageBoxButtons.OK, MessageBoxIcon.Information); }
+    void ShowError(string text)
+    {
+        status.Text = text; status.ForeColor = Theme.Danger;
+        if (Unattended) throw new InvalidOperationException(text);
+        MessageBox.Show(Window, text, "Editrainer", MessageBoxButtons.OK, MessageBoxIcon.Information);
+    }
     internal bool HandleShortcut(Keys keyData)
     {
         if (keyData == (Keys.Control | Keys.O)) { OpenDialog(); return true; }
