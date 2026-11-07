@@ -507,6 +507,7 @@ static class AllGames
         var rules = new GameRules(sav);
         var slots = new[] { 0, 1 };
         foreach (int slot in slots) sav.SetBoxSlotAtIndex(Make(sav, 25, version), slot, EntityImportSettings.None);
+        if (rules.IsGameBoy) sav.SetPartySlotAtIndex(Make(sav, 25, version), 0, EntityImportSettings.None);   // an empty party doesn't read as a save
         var path = Path.Combine(work, version + ".details.sav");
         sav.Money = 3000;
         File.WriteAllBytes(path, TestSaves.Finish(sav));
@@ -514,8 +515,10 @@ static class AllGames
         var entry = doc.Pokemon.First(p => !p.IsParty);
         var other = doc.Pokemon.Last(p => !p.IsParty);
         Check(label, Catalog.CheckLegality(entry).Report.Length != 0, "da un veredicto de legalidad");
-        string shortName = rules.IsGameBoy ? "ABC" : "Abc";
-        entry.Edit.Level = 42; entry.Edit.Nickname = shortName; entry.Edit.Trainer = "Ana".ToUpperInvariant();
+        // Blue only came out in Japan, and that alphabet has no Latin letters.
+        string shortName = entry.Original.Japanese ? "アイウ" : rules.IsGameBoy ? "ABC" : "Abc";
+        string trainerName = entry.Original.Japanese ? "アイウ" : "ANA";
+        entry.Edit.Level = 42; entry.Edit.Nickname = shortName; entry.Edit.Trainer = trainerName;
         var balls = Catalog.GetBalls(entry);
         Check(label, rules.HasBall == balls.Count > 1, "ofrece Poké Balls solo donde existen", balls.Count.ToString());
         if (rules.HasBall) entry.Edit.Ball = balls.Last().Id;
@@ -524,7 +527,7 @@ static class AllGames
         Check(label, preview.ChecksumValid && preview.CurrentLevel == 42 && preview.Stat_Level == 42, "cambia el nivel", preview.CurrentLevel.ToString());
         Check(label, preview.Stat_HPMax == preview.GetStats(preview.PersonalInfo)[0], "recalcula las estadísticas con el nivel");
         Check(label, preview.Nickname == shortName && preview.IsNicknamed, "cambia el apodo", preview.Nickname);
-        Check(label, preview.OriginalTrainerName == "ANA", "cambia el entrenador", preview.OriginalTrainerName);
+        Check(label, preview.OriginalTrainerName == trainerName, "cambia el entrenador", preview.OriginalTrainerName);
         var cleared = other.Edit.Nickname; other.Edit.Nickname = shortName; other.Edit.Nickname = "";
         Check(label, other.Preview().Nickname.Equals(cleared, StringComparison.OrdinalIgnoreCase) && !other.Preview().IsNicknamed, "vaciar el apodo vuelve al nombre de la especie", other.Preview().Nickname);
         other.Edit.Nickname = new string('A', other.Original.MaxStringLengthNickname + 1);
@@ -536,7 +539,7 @@ static class AllGames
         File.WriteAllBytes(edited, doc.BuildOutput());
         var read = SaveDocument.Open(edited);
         var saved = read.Pokemon.First(p => p.Index == entry.Index && !p.IsParty);
-        Check(label, saved.Original.CurrentLevel == 42 && saved.Original.Nickname == shortName && saved.Original.OriginalTrainerName == "ANA", "el nivel y los nombres se guardan");
+        Check(label, saved.Original.CurrentLevel == 42 && saved.Original.Nickname == shortName && saved.Original.OriginalTrainerName == trainerName, "el nivel y los nombres se guardan");
         if (rules.HasBall) Check(label, saved.Original.Ball == balls.Last().Id, "la Poké Ball se guarda", saved.Original.Ball.ToString());
         Check(label, !saved.Dirty, "lo guardado queda sin cambios pendientes");
 
@@ -551,6 +554,280 @@ static class AllGames
         try { read.ImportShowdown(fresh, Catalog.Names.specieslist[1] == "" ? "" : "Bulbasaur\nLevel: 5"); }
         catch (InvalidOperationException) { refused = true; }
         Check(label, refused, "rechaza el set de otra especie");
+    }
+
+    sealed class Counter : IProgress<int>
+    {
+        public readonly List<int> Seen = [];
+        public void Report(int value) => Seen.Add(value);
+    }
+
+    // Reads a CSV the way a spreadsheet does.
+    static List<List<string>> ReadCsv(string text, char separator)
+    {
+        var rows = new List<List<string>>();
+        var row = new List<string>();
+        var cell = new System.Text.StringBuilder();
+        bool quoted = false;
+        for (int i = 0; i < text.Length; i++)
+        {
+            char c = text[i];
+            if (quoted)
+            {
+                if (c == '"' && i + 1 < text.Length && text[i + 1] == '"') { cell.Append('"'); i++; }
+                else if (c == '"') quoted = false;
+                else cell.Append(c);
+            }
+            else if (c == '"') quoted = true;
+            else if (c == separator) { row.Add(cell.ToString()); cell.Clear(); }
+            else if (c == '\n') { row.Add(cell.ToString()); cell.Clear(); rows.Add(row); row = []; }
+            else if (c != '\r') cell.Append(c);
+        }
+        return rows;
+    }
+
+    // Goes through the Pokémon the way the audit and the report do, pending edits and odd cases included.
+    static void Audit(SaveDocument doc, string label)
+    {
+        var rules = doc.Rules;
+        var counter = new Counter();
+        var rows = SaveTools.Scan(doc, counter);
+        Check(label, rows.Select(r => r.Entry).SequenceEqual(doc.Pokemon), "revisa a todos los Pokémon", rows.Count.ToString());
+        Check(label, counter.Seen.SequenceEqual(Enumerable.Range(1, doc.Pokemon.Count)), "informa del avance", string.Join(' ', counter.Seen));
+        foreach (var row in rows)
+        {
+            var verdict = Catalog.CheckLegality(row.Entry);
+            Check(label, row.Legal == verdict.Valid && row.Report == verdict.Report, "da el mismo veredicto que la pestaña Detalles", row.Species);
+            Check(label, row.Reasons.Length != 0 && !row.Reasons.Contains('\n'), "resume los motivos en una línea", row.Species);
+            Check(label, row.Place.Text == row.Entry.Location && row.Species == row.Entry.SpeciesName && row.Level == 12, "ubica y nombra al Pokémon", row.Place.Text);
+        }
+        Check(label, rows.Select(r => r.Place).Order().SequenceEqual(rows.Select(r => r.Place)), "ordena por lugar y no por texto");
+        Check(label, new Place(2, "Caja 2").CompareTo(new Place(10, "Caja 10")) < 0, "la caja 10 va después de la caja 2");
+
+        var edited = doc.Pokemon[0];
+        var move = Catalog.GetMoves(edited).FirstOrDefault(m => m.Id != 0 && m.Id != edited.Edit.Moves[0]);
+        edited.Edit.Level = 77; edited.Edit.IVs[1] = rules.MaxIV;
+        if (rules.HasNature) edited.Edit.Nature = Nature.Timid;
+        if (move != null) edited.Edit.Moves[1] = (ushort)move.Id;
+        if (rules.HasShiny) Catalog.SetShiny(edited, true);
+        var row0 = SaveTools.Scan(doc)[0];
+        var pending = Catalog.CheckLegality(edited);
+        Check(label, row0.Level == 77 && row0.IVs.Split('/')[1] == rules.MaxIV.ToString(), "incluye los cambios pendientes", $"{row0.Level} {row0.IVs}");
+        Check(label, row0.Legal == pending.Valid && row0.Report == pending.Report, "juzga al Pokémon con sus cambios pendientes");
+        if (rules.HasNature) Check(label, row0.Nature == Catalog.Names.natures[(int)Nature.Timid], "muestra la naturaleza pendiente", row0.Nature);
+        if (move != null) Check(label, row0.Moves.Contains(move.Label), "muestra el movimiento pendiente", row0.Moves);
+        if (rules.HasShiny) Check(label, row0.Shiny, "muestra el shiny pendiente");
+        Check(label, doc.DirtyCount == 1 && edited.Dirty && edited.Original.CurrentLevel == 12, "revisar no toca los cambios pendientes", doc.DirtyCount.ToString());
+        doc.ResetPokemon(edited);
+
+        edited.Edit.Moves = [];
+        var damaged = SaveTools.Scan(doc);
+        Check(label, damaged.Count == doc.Pokemon.Count && !damaged[0].Legal && damaged[0].Report.Length != 0, "un Pokémon imposible no detiene la revisión", damaged[0].Report);
+        doc.ResetPokemon(edited);
+
+        using var cancel = new CancellationTokenSource();
+        cancel.Cancel();
+        bool stopped = false;
+        try { SaveTools.Scan(doc, null, cancel.Token); }
+        catch (OperationCanceledException) { stopped = true; }
+        Check(label, stopped, "la revisión se puede detener");
+        Check(label, !doc.HasChanges && doc.BuildOutput().SequenceEqual(doc.OriginalBytes), "revisar no altera lo que se guarda");
+    }
+
+    static void Report(SaveDocument doc, string label, string work)
+    {
+        var rules = doc.Rules;
+        var rows = SaveTools.Scan(doc);
+        var columns = SaveTools.ReportColumns(rules);
+        var headers = columns.Select(c => c.Header).ToList();
+        Check(label, headers.Contains("Lugar") && headers.Contains("Especie") && headers.Contains("Apodo") && headers.Contains("Nivel") && headers.Contains("Movimientos") && headers.Contains("¿Legal?"), "el informe tiene sus columnas", string.Join(' ', headers));
+        Check(label, headers.Contains(rules.IVName) && headers.Contains(rules.EVName), "el informe usa los nombres del juego", string.Join(' ', headers));
+        Check(label, headers.Contains("Naturaleza") == rules.HasNature && headers.Contains("Habilidad") == rules.HasAbility && headers.Contains("Objeto") == rules.HasHeldItems && headers.Contains("Shiny") == rules.HasShiny,
+            "el informe muestra solo lo que el juego tiene", string.Join(' ', headers));
+        var read = ReadCsv(SaveTools.ToCsv(rows, columns, ","), ',');
+        Check(label, read.Count == rows.Count + 1 && read.All(r => r.Count == columns.Count), "el CSV tiene una fila por Pokémon", read.Count.ToString());
+        Check(label, read[0].SequenceEqual(headers), "el CSV empieza por los encabezados", string.Join(' ', read[0]));
+        for (int i = 0; i < rows.Count; i++)
+            Check(label, read[i + 1].SequenceEqual(columns.Select(c => c.Value(rows[i]).ToString() ?? "")), "el CSV dice lo mismo que la tabla", rows[i].Species);
+
+        // Free text from a save, with everything that could break a CSV or run in a spreadsheet.
+        string nickname = "=1+1, \"x\"\nz";
+        int column = headers.IndexOf("Apodo");
+        foreach (char separator in ",;")
+        {
+            var tricky = ReadCsv(SaveTools.ToCsv([rows[0] with { Nickname = nickname }], columns, separator.ToString()), separator);
+            Check(label, tricky.Count == 2 && tricky[1].Count == columns.Count && tricky[1][column] == "'" + nickname, "el CSV protege el texto libre", tricky[1][column]);
+        }
+        var file = Path.Combine(work, doc.Rules.Version + ".report.csv");
+        SaveTools.ExportCsv(file, rows, columns);
+        var bytes = File.ReadAllBytes(file);
+        Check(label, bytes.Take(3).SequenceEqual(new byte[] { 0xEF, 0xBB, 0xBF }) && File.ReadAllText(file).Contains(rows[0].Species), "el CSV se abre con acentos y chino");
+    }
+
+    static void Refused(string label, string what, Action action, string file, byte[] expected)
+    {
+        bool refused = false;
+        try { action(); }
+        catch (InvalidOperationException) { refused = true; }
+        Check(label, refused, what);
+        Check(label, File.ReadAllBytes(file).SequenceEqual(expected), what + " sin tocar el archivo");
+    }
+
+    // A place in the save with a Pokémon that isn't there in the other one.
+    static byte[] WithExtraPokemon(string path, GameVersion version)
+    {
+        var sav = SaveUtil.GetSaveFile(File.ReadAllBytes(path), path)!;
+        // Right after the others, because Game Boy boxes are lists with no gaps.
+        int free = Enumerable.Range(0, sav.SlotCount).First(i => sav.GetBoxSlotAtIndex(i).Species == 0);
+        sav.SetBoxSlotAtIndex(Make(sav, 25, version), free, EntityImportSettings.None);
+        return TestSaves.Finish(sav);
+    }
+
+    static void CompareSaves(GameVersion version, string label, string work, string path)
+    {
+        var same = SaveDocument.Read(path);
+        var rules = same.Rules;
+        Check(label, SaveTools.Compare(same, SaveDocument.Read(path)).Count == 0, "una partida es igual a sí misma");
+
+        var edited = SaveDocument.Read(path);
+        var first = edited.Pokemon[0];
+        first.Edit.Level = 50;
+        if (rules.HasNature) first.Edit.Nature = first.Edit.Nature == Nature.Timid ? Nature.Modest : Nature.Timid;
+        edited.Money = 4321;
+        var item = edited.Items.FirstOrDefault(i => i.Pouch != InventoryType.TMHMs && i.MaxCount >= 6);
+        int count = item == null ? 0 : item.OriginalCount == 5 ? 6 : 5;
+        if (item != null) edited.SetItemCount(item.Id, count);
+        var changedPath = Path.Combine(work, version + ".changed.sav");
+        File.WriteAllBytes(changedPath, edited.BuildOutput());
+        var changed = SaveDocument.Read(changedPath);
+        var changes = SaveTools.Compare(same, changed);
+        var pokemon = changes.Where(c => c.Kind == "Pokémon").ToList();
+        Check(label, pokemon.Count == 1 && pokemon[0].What.Text == first.Location, "señala el Pokémon que cambió", string.Join(" | ", changes));
+        Check(label, pokemon[0].First.Contains("12") && pokemon[0].Second.Contains("50") && pokemon[0].Detail.Contains("Nivel: 12 → 50"), "dice qué cambió en el Pokémon", pokemon[0].ToString());
+        Check(label, pokemon[0].Detail.Contains("Naturaleza") == rules.HasNature, "dice si cambió la naturaleza", pokemon[0].Detail);
+        var money = changes.Single(c => c.Kind == "Dinero");
+        Check(label, money.First == 3000.ToString("N0") && money.Second == 4321.ToString("N0"), "dice cuánto dinero cambió", money.ToString());
+        if (item != null) Check(label, changes.Any(c => c.What.Text == item.Name && c.First == item.OriginalCount.ToString() && c.Second == count.ToString()), "dice qué objeto cambió", string.Join(" | ", changes));
+        Check(label, changes.Count == 2 + (item != null ? 1 : 0), "no inventa diferencias", string.Join(" | ", changes));
+        var back = SaveTools.Compare(changed, same).Single(c => c.Kind == "Dinero");
+        Check(label, back.First == money.Second && back.Second == money.First, "el orden de las partidas se respeta");
+
+        var extraPath = Path.Combine(work, version + ".extra.sav");
+        File.WriteAllBytes(extraPath, WithExtraPokemon(path, version));
+        var extra = SaveDocument.Read(extraPath);
+        var newcomer = extra.Pokemon.Last(p => !p.IsParty);
+        string place = newcomer.Location;
+        var joined = SaveTools.Compare(same, extra).Single(c => c.Kind == "Pokémon");
+        Check(label, joined.What.Text == place && joined.First == "(vacío)" && joined.Second.Contains(newcomer.SpeciesName), "dice qué Pokémon llegó", joined.ToString());
+        var left = SaveTools.Compare(extra, same).Single(c => c.Kind == "Pokémon");
+        Check(label, left.What.Text == place && left.Second == "(vacío)", "dice qué Pokémon se fue", left.ToString());
+
+        var foreign = version == GameVersion.E ? GameVersion.FR : GameVersion.E;
+        var otherPath = Path.Combine(work, version + ".other-game.sav");
+        File.WriteAllBytes(otherPath, TestSaves.Finish(TestSaves.Start(foreign)));
+        var open = SaveDocument.Open(path);
+        var other = SaveDocument.Read(otherPath);
+        Check(label, RecentTrainerCache.Version == open.Save.Version, "leer otra partida no cambia la que está abierta", RecentTrainerCache.Version.ToString());
+        Refused(label, "no compara partidas de juegos distintos", () => SaveTools.Compare(open, other), path, open.OriginalBytes);
+    }
+
+    static void Backups(GameVersion version, string label, string work, string path)
+    {
+        var root = Path.Combine(work, version + ".backups");
+        if (Directory.Exists(root)) Directory.Delete(root, true);
+        Check(label, SaveTools.ListBackups(root).Count == 0 && !Directory.Exists(root), "mirar los respaldos no crea la carpeta");
+        var file = Path.GetFullPath(Path.Combine(work, version + ".restore.sav"));
+        File.Copy(path, file, true);
+        var start = File.ReadAllBytes(file);
+        var writer = SaveDocument.Read(file);
+        var rules = writer.Rules;
+        writer.Money = 1234;
+        writer.Pokemon[0].Edit.Level = 33;
+        var item = writer.Items.FirstOrDefault(i => i.Pouch != InventoryType.TMHMs && i.MaxCount >= 6);
+        if (item != null) writer.SetItemCount(item.Id, item.OriginalCount == 5 ? 6 : 5);
+        var written = writer.Write(file, root, _ => null);
+        var edited = File.ReadAllBytes(file);
+
+        var backup = SaveTools.ListBackups(root).Single();
+        string summary = "1 Pokémon · Dinero" + (item != null ? " · 1 objeto" : "");
+        Check(label, backup.Folder == written && backup.Game == rules.FullName && Math.Abs((DateTime.Now - backup.Date).TotalMinutes) < 5, "lista fecha y juego", $"{backup.Game} {backup.Date}");
+        Check(label, backup.Summary == summary, "resume lo que cambió", backup.Summary);
+        Check(label, backup.Changes.Any(c => c.Contains("Dinero: 3,000 → 1,234") || c.Contains("Dinero: 3000 → 1234") || c.Contains("Dinero: 3.000 → 1.234")), "dice cuánto dinero cambió", string.Join(" | ", backup.Changes));
+        Check(label, backup.Changes.Any(c => c.Contains(writer.Pokemon[0].Location) && c.Contains("Nivel: 12 → 33")), "dice qué Pokémon cambió", string.Join(" | ", backup.Changes));
+        if (item != null) Check(label, backup.Changes.Any(c => c.StartsWith(item.Name + ":")), "dice qué objeto cambió", string.Join(" | ", backup.Changes));
+        Check(label, backup.CanRestore && backup.Target == file, "sabe de qué archivo es", backup.Target ?? "");
+
+        Refused(label, "no restaura con el emulador abierto", () => SaveTools.RestoreBackup(backup, root, _ => "Eden"), file, edited);
+        Check(label, Directory.GetDirectories(root).Length == 1, "negarse no deja copias");
+        int calls = 0;
+        Refused(label, "no restaura si el emulador se abre a mitad", () => SaveTools.RestoreBackup(backup, root, _ => ++calls == 1 ? null : "Eden"), file, edited);
+        calls = 0;
+        var moved = edited.ToArray(); moved[moved.Length / 2] ^= 1;
+        Refused(label, "no restaura si la partida cambia a mitad", () => SaveTools.RestoreBackup(backup, root, _ => {
+            if (++calls == 2) File.WriteAllBytes(file, moved);
+            return null;
+        }), file, moved);
+        File.WriteAllBytes(file, edited);
+        Check(label, !Directory.GetFiles(work, Path.GetFileName(file) + ".editrainer-*").Any(), "no deja archivos temporales");
+
+        var kept = SaveTools.RestoreBackup(backup, root, _ => null);
+        Check(label, File.ReadAllBytes(file).SequenceEqual(start), "restaura el respaldo byte a byte");
+        Check(label, kept != null && File.ReadAllBytes(Path.Combine(kept, Path.GetFileName(file) + ".original")).SequenceEqual(edited), "guarda una copia antes de restaurar");
+        var safety = SaveTools.ListBackups(root).First(b => b.Folder == kept);
+        Check(label, safety.CanRestore && safety.Target == file && safety.Summary != "Sin detalles" && safety.Changes.Count == 1, "la copia aparece en la lista", safety.Summary);
+        Refused(label, "avisa si la partida ya es igual al respaldo", () => SaveTools.RestoreBackup(backup, root, _ => null), file, start);
+        SaveTools.RestoreBackup(safety, root, _ => null);
+        Check(label, File.ReadAllBytes(file).SequenceEqual(edited), "una restauración se puede deshacer");
+
+        var stored = Path.Combine(backup.Folder, Path.GetFileName(file) + ".original");
+        var good = File.ReadAllBytes(stored);
+        var bad = good.ToArray(); bad[bad.Length / 2] ^= 1;
+        File.WriteAllBytes(stored, bad);
+        Refused(label, "no restaura un respaldo dañado", () => SaveTools.RestoreBackup(backup, root, _ => null), file, edited);
+        File.WriteAllBytes(stored, good);
+
+        File.Delete(file);
+        Check(label, SaveTools.RestoreBackup(backup, root, _ => null) == null && File.ReadAllBytes(file).SequenceEqual(start), "restaura un archivo que se borró");
+        File.WriteAllBytes(file, new byte[start.Length]);
+        var fromDamaged = SaveTools.RestoreBackup(backup, root, _ => null);
+        Check(label, File.ReadAllBytes(file).SequenceEqual(start) && File.ReadAllBytes(Path.Combine(fromDamaged!, Path.GetFileName(file) + ".original")).All(b => b == 0), "restaura sobre una partida dañada y la conserva");
+        var foreign = File.ReadAllBytes(Path.Combine(work, version + ".other-game.sav"));
+        File.WriteAllBytes(file, foreign);
+        Refused(label, "no restaura sobre otro juego", () => SaveTools.RestoreBackup(backup, root, _ => null), file, foreign);
+
+        // Saved over another file: what was lost is that file, and it is the one that goes back.
+        var elsewhere = Path.GetFullPath(Path.Combine(work, version + ".elsewhere.sav"));
+        var replaced = SaveDocument.Read(path); replaced.Money = 777;
+        var replacedBytes = replaced.BuildOutput();
+        File.WriteAllBytes(elsewhere, replacedBytes);
+        var saveAs = SaveDocument.Read(path); saveAs.Money = 888;
+        saveAs.Write(elsewhere, root, _ => null);
+        var copied = SaveTools.ListBackups(root).First(b => b.Target == elsewhere);
+        Check(label, Path.GetFileName(copied.Payload) == "destino.anterior", "usa lo que había en el destino", copied.Payload ?? "");
+        SaveTools.RestoreBackup(copied, root, _ => null);
+        Check(label, File.ReadAllBytes(elsewhere).SequenceEqual(replacedBytes), "devuelve el archivo sobrescrito");
+
+        var empty = Path.Combine(root, "sin-nada");
+        var unreadable = Path.Combine(root, "2020-01-02_030405_006_abcdef");
+        Directory.CreateDirectory(empty); Directory.CreateDirectory(unreadable);
+        File.WriteAllText(Path.Combine(unreadable, "cambios.json"), "esto no es JSON");
+        File.WriteAllBytes(Path.Combine(unreadable, "main.original"), start);
+        var listed = SaveTools.ListBackups(root);
+        var broken = listed.Single(b => b.Folder == unreadable);
+        Check(label, listed.Any(b => b.Folder == empty) && !broken.CanRestore && broken.Summary == "Sin detalles" && broken.Date == new DateTime(2020, 1, 2, 3, 4, 5, 6), "un respaldo dañado se lista pero no se restaura", broken.Summary);
+        Check(label, listed.Select(b => b.Date).SequenceEqual(listed.Select(b => b.Date).OrderDescending()), "lista primero lo más reciente");
+        Refused(label, "no restaura sin saber el destino", () => SaveTools.RestoreBackup(broken, root, _ => null), file, foreign);
+    }
+
+    // The tools that work on a whole save. Everything here only looks, except restoring a backup.
+    static void SaveTool(GameVersion version, string label, string work)
+    {
+        var path = Path.Combine(work, version + ".sav");
+        var doc = SaveDocument.Open(path);
+        Audit(doc, label);
+        Report(doc, label, work);
+        CompareSaves(version, label, work, path);
+        Backups(version, label, work, path);
     }
 
     static void LanguageSwitch(GameVersion version, string label, string work)
@@ -685,7 +962,7 @@ static class AllGames
         foreach (var (game, label) in Games)
         {
             int before = failed;
-            try { Run(game, label, work); FormsOnDisk(game, label, work); StuckForms(game, label); Abilities(game, label, work); Details(game, label, work); AbilityWithForms(game, label); LanguageSwitch(game, label, work); InEveryLanguage(game, label, work); }
+            try { Run(game, label, work); FormsOnDisk(game, label, work); StuckForms(game, label); Abilities(game, label, work); Details(game, label, work); SaveTool(game, label, work); AbilityWithForms(game, label); LanguageSwitch(game, label, work); InEveryLanguage(game, label, work); }
             catch (Exception ex) { failed++; failures.Add($"{label}: {ex.GetType().Name}: {ex.Message.Split('\n')[0]}  {ex.StackTrace?.Split('\n').FirstOrDefault()?.Trim()}"); }
             Console.WriteLine($"{(failed == before ? "ok   " : "FALLA")} {label}");
         }

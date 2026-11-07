@@ -144,6 +144,15 @@ Click **Save game** to apply the money, item and Pokémon changes together, afte
 
 Rows keep their room for fields and labels. If you shrink the window and the content doesn't fit, you can scroll inside each tab.
 
+## Whole-save tools
+
+The **Tools** button, next to **Find saves**, opens four tools. Each one has its own window beside the editor, so you can keep working while it's open. Only restoring a backup writes anything.
+
+- **Legality audit** checks every Pokémon as it would be saved, pending changes included, and lists the ones that aren't legal with the reasons. Click one to see it in the editor, and use **Check again** after fixing it.
+- **Box report** shows every Pokémon in one table: place, species, nickname, level, nature, ability, IVs, EVs, moves, held item, shiny and legality. Click a column to sort by it. **Export CSV** saves the table for a spreadsheet, using your system's list separator. IVs and EVs follow the order HP / Attack / Defense / Speed / Sp. Atk / Sp. Def.
+- **Manage backups** lists the `Backups` folder with the date, the game and what changed. **Restore** asks first, keeps a copy of the current file, puts the backup back and checks the result byte by byte. It refuses while that console's emulator is running. It also works with no save open, in case yours no longer opens.
+- **Compare saves** takes two saves of the same game and lists which Pokémon, money and items differ. It goes place by place, so a Pokémon that moved shows up in both places, and it reads the files on disk, so pending changes don't count.
+
 ## Backups
 
 Backups go in the `Backups` folder, inside the app's folder. The **Open backups** link opens it. Each save includes:
@@ -152,7 +161,7 @@ Backups go in the `Backups` folder, inside the app's folder. The **Open backups*
 - `cambios.json`: which Pokémon and values changed.
 - `destino.anterior`: an extra copy, if a file other than the one you opened was overwritten.
 
-To restore a backup, close the emulator, open the `.original` file and use **Save as** to store it under its original name in the emulator's save folder. To open `main.original`, choose the **All files** filter in the file selector.
+To restore a backup, use **Tools > Manage backups**. To do it by hand, close the emulator, open the `.original` file and use **Save as** to store it under its original name in the emulator's save folder. To open `main.original`, choose the **All files** filter in the file selector.
 
 The app refuses to save values outside the game's limits, repeated or incompatible moves, and saves that changed outside the app after being opened. It also reopens and verifies the generated save before replacing the old one.
 

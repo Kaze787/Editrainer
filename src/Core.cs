@@ -596,9 +596,12 @@ public static class Catalog
         var d = e.Edit;
         if (d.Nickname == e.Baseline.Nickname && d.Trainer == e.Baseline.Trainer) return false;
         var preview = e.Preview();
-        return d.Nickname != e.Baseline.Nickname && d.Nickname.Trim().Length != 0 && preview.Nickname != d.Nickname
-            || d.Trainer != e.Baseline.Trainer && preview.OriginalTrainerName != d.Trainer;
+        return d.Nickname != e.Baseline.Nickname && d.Nickname.Trim().Length != 0 && Loses(d.Nickname, preview.Nickname, e.Original.MaxStringLengthNickname)
+            || d.Trainer != e.Baseline.Trainer && Loses(d.Trainer, preview.OriginalTrainerName, e.Original.MaxStringLengthTrainer);
     }
+
+    // Game Boy games keep room for the end mark, so one letter too many is stored and then runs into the next field.
+    static bool Loses(string wanted, string stored, int limit) => wanted.Length > limit || stored != wanted;
 
     public static string NatureEffect(Nature nature)
     {
@@ -656,6 +659,11 @@ public sealed class SaveDocument
     public int BoxOf(PokemonEntry entry) => entry.Index / Save.BoxSlotCount;
     public static string Hash(byte[] data) => Convert.ToHexString(SHA256.HashData(data));
 
+    /// <summary>Backups are folders named after the moment they were made, so they sort by date.</summary>
+    public const string BackupStamp = "yyyy-MM-dd_HHmmss_fff";
+    public static string NewBackupFolder(string root) => Path.Combine(root,
+        DateTime.Now.ToString(BackupStamp, System.Globalization.CultureInfo.InvariantCulture) + "_" + Guid.NewGuid().ToString("N")[..6]);
+
     /// <summary>The team's six places, in order. A place with nobody in it is null.</summary>
     public List<PokemonEntry?> TeamSlots()
     {
@@ -685,7 +693,16 @@ public sealed class SaveDocument
             .OrderBy(x => x.Name, StringComparer.CurrentCultureIgnoreCase).ToList();
     }
 
+    /// <summary>Opens a save for editing. The legality rules and the Showdown text then follow this one.</summary>
     public static SaveDocument Open(string path)
+    {
+        var document = Read(path);
+        document.Activate();
+        return document;
+    }
+
+    /// <summary>Reads a save without making it the open one, for what only looks at it.</summary>
+    public static SaveDocument Read(string path)
     {
         var info = new FileInfo(path);
         if (!info.Exists || info.Length is < SmallestSave or > LargestSave)
@@ -701,10 +718,8 @@ public sealed class SaveDocument
         if (save is SAV9ZA && entries.Any(e => !e.Original.ChecksumValid)) throw new InvalidOperationException(T("La partida contiene un Pokémon con datos dañados."));
         entries = entries.Where(e => e.Original.ChecksumValid).ToList();   // older games can hold "bad eggs": leave those alone
         var items = save is SAV9ZA za ? ReadBagZA(za, rules) : ReadBag(save, rules);
-        var document = new SaveDocument { FilePath = Path.GetFullPath(path), OriginalBytes = bytes, OriginalHash = Hash(bytes), Save = save, Rules = rules,
+        return new SaveDocument { FilePath = Path.GetFullPath(path), OriginalBytes = bytes, OriginalHash = Hash(bytes), Save = save, Rules = rules,
             Pokemon = entries, Money = save.Money, Items = items.OrderBy(x => x.Name, StringComparer.CurrentCultureIgnoreCase).ToList() };
-        document.Activate();
-        return document;
     }
 
     // The legality rules and the Showdown text ask PKHeX which save is open.
@@ -1082,7 +1097,7 @@ public sealed class SaveDocument
         var bytes = BuildOutput();
         destination = Path.GetFullPath(destination);
         var existing = File.Exists(destination) ? File.ReadAllBytes(destination) : null;
-        var backupDir = Path.Combine(backupRoot, DateTime.Now.ToString("yyyy-MM-dd_HHmmss_fff") + "_" + Guid.NewGuid().ToString("N")[..6]);
+        var backupDir = NewBackupFolder(backupRoot);
         Directory.CreateDirectory(backupDir);
         var backupFile = Path.Combine(backupDir, Path.GetFileName(FilePath) + ".original");
         File.WriteAllBytes(backupFile, OriginalBytes);

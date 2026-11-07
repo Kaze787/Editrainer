@@ -67,10 +67,13 @@ public sealed class EditorView : UserControl
         Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, Dock = DockStyle.Fill, Font = Theme.Font(9),
         BackColor = Theme.Surface, ForeColor = Theme.Ink, BorderStyle = BorderStyle.None, Margin = new Padding(3, 0, 3, 6),
     };
-    readonly ContextMenuStrip toolsMenu = new();
+    readonly ContextMenuStrip toolsMenu = new() { Font = Theme.Font() };
     readonly ResourcesPanel resources = new();
     readonly EquipmentPanel equipment = new();
     TableLayoutPanel? detailsLayout, heroPanel;
+    ToolWindow? tool;
+    string? scratchBackups;   // the automatic checks keep their hands off the user's own folder
+    string BackupRoot => scratchBackups ?? Path.Combine(appRoot, "Backups");
 
     readonly GearButton settingsButton = new();
 
@@ -177,7 +180,7 @@ public sealed class EditorView : UserControl
         right.Controls.Add(validation, 0, 2); body.Controls.Add(right, 1, 0); root.Controls.Add(body, 0, 2);
 
         var footer = Table(2, 2); footer.Padding = new Padding(0, 9, 0, 0);
-        footer.ColumnStyles.Add(new(SizeType.Percent, 100)); footer.ColumnStyles.Add(new(SizeType.Absolute, 470));
+        footer.ColumnStyles.Add(new(SizeType.Percent, 100)); footer.ColumnStyles.Add(new(SizeType.Absolute, 560));
         footer.RowStyles.Add(new(SizeType.Percent, 65)); footer.RowStyles.Add(new(SizeType.Percent, 35));
         footer.Controls.Add(status, 0, 0);
         var globalActions = Flow(); globalActions.FlowDirection = FlowDirection.RightToLeft;
@@ -205,9 +208,40 @@ public sealed class EditorView : UserControl
     // Each tool that works on the whole save adds its entry here.
     void BuildTools()
     {
+        AddTool(T("Auditoría de legalidad"), () => OpenTool(new AuditWindow(document!, ShowPokemon)));
+        AddTool(T("Informe de cajas"), () => OpenTool(new BoxReportWindow(document!, ShowPokemon)));
+        // A save that no longer opens is the best reason to want a backup.
+        AddTool(T("Administrar respaldos"), () => OpenTool(new BackupWindow(BackupRoot, document, AfterRestore)), false);
+        AddTool(T("Comparar partidas"), () => OpenTool(new CompareWindow(document?.FilePath)), false);
     }
 
-    void AddTool(string text, Action run) => toolsMenu.Items.Add(text, null, (_, _) => { if (document != null) run(); });
+    void AddTool(string text, Action run, bool needsSave = true) => toolsMenu.Items.Add(text, null, (_, _) => {
+        if (document != null || !needsSave) run();
+        else status.Text = T("Abre una partida primero.");
+    });
+
+    internal void CloseTool() => tool?.Close();
+
+    void OpenTool(ToolWindow window)
+    {
+        CloseTool();
+        tool = window;
+        window.FormClosed += (_, _) => { if (tool == window) tool = null; };
+        window.ShowBeside(Window);
+    }
+
+    void ShowPokemon(PokemonEntry entry)
+    {
+        if (!shown.Contains(entry)) search.Text = "";
+        Pick(entry); tabs.SelectedIndex = DetailsTab;
+    }
+
+    // The open save has to follow its file, or the next save would be refused as changed outside the app.
+    void AfterRestore(string path)
+    {
+        if (document == null || !string.Equals(Path.GetFullPath(path), document.FilePath, StringComparison.OrdinalIgnoreCase)) return;
+        LoadFile(path); Notify(T("Respaldo restaurado y verificado byte a byte."));
+    }
 
     void BuildStatsTab()
     {
@@ -583,6 +617,7 @@ public sealed class EditorView : UserControl
 
     void Attach(SaveDocument loaded)
     {
+        CloseTool();
         current = null; document = loaded; ApplyRules(loaded.Rules); resources.Bind(document);
         box = document.OpeningBox; boxPicker.Items.Clear(); boxPicker.Items.AddRange(Enumerable.Range(0, document.BoxCount).Select(document.BoxLabel).ToArray<object>());
         search.Text = "";
@@ -824,6 +859,7 @@ public sealed class EditorView : UserControl
         Check(!save.Enabled && !document.HasChanges && heroPanel?.Visible == false, "Resource undo clears global pending changes and the bag tab hides the Pokémon header");
         Choose(4); tabs.SelectedIndex = 0; equipment.RunInteractionChecks(Check); resources.RefreshDraft(); UpdateState();
         Check(!document.HasChanges && !save.Enabled, "Equipment and friendship test edits can be completely undone");
+        CheckSaveTools(Check, ToolScratch(reportPath));
         CheckLayout(Check, "normal window");
         Window.Size = Window.MinimumSize; CheckLayout(Check, "minimum window");
         var fonts = Descendants(tabs).Select(c => (Control: c, Font: c.Font)).ToList();
@@ -832,9 +868,167 @@ public sealed class EditorView : UserControl
         File.WriteAllText(reportPath, JsonSerializer.Serialize(new { passed = checks.Count, checks }, new JsonSerializerOptions { WriteIndented = true }));
     }
 
+    static string ToolScratch(string reportPath)
+    {
+        var folder = Path.GetFullPath(reportPath) + ".tools";
+        if (Directory.Exists(folder)) Directory.Delete(folder, true);
+        Directory.CreateDirectory(folder);
+        return folder;
+    }
+
+    static void WaitFor(Func<bool> finished, string what)
+    {
+        var clock = Stopwatch.StartNew();
+        while (!finished())
+        {
+            if (clock.Elapsed > TimeSpan.FromMinutes(2)) throw new TimeoutException(what);
+            Application.DoEvents(); Thread.Sleep(1);
+        }
+    }
+
+    TWindow OpenFromMenu<TWindow>(string text) where TWindow : ToolWindow
+    {
+        toolsMenu.Items.Cast<ToolStripItem>().First(i => i.Text == text).PerformClick();
+        var opened = (TWindow)tool!;
+        WaitFor(() => !opened.Working, text);
+        return opened;
+    }
+
+    // On copies of the save and with a backups folder of their own: the user's are out of reach from here.
+    void CheckSaveTools(Action<bool, string> Check, string scratch)
+    {
+        string opened = document!.FilePath;
+        scratchBackups = Path.Combine(scratch, "Backups");
+        Check(toolsMenu.Items.Count >= 4, "The tools menu offers the whole-save tools");
+
+        var illegal = document.Pokemon[4];
+        Pick(illegal); levelBox.Value = 1;
+        search.Text = "bunnelby";
+        var audit = OpenFromMenu<AuditWindow>(T("Auditoría de legalidad"));
+        Check(audit.Owner == Window && audit.Right < 0 && audit.Bottom < 0, "A tool opens beside the editor, not on its own somewhere else");
+        Check(audit.Rows.Count == document.Pokemon.Count && audit.StatusText.Contains(document.Pokemon.Count.ToString()), "The audit goes through every Pokémon and says so");
+        int row = audit.RowOf(illegal);
+        Check(row >= 0 && audit.Cell(row, 2).Length != 0, "The audit judges pending edits and gives its reasons");
+        audit.SelectRow(row);
+        Check(audit.DetailText.Length >= audit.Cell(row, 2).Length - 2, "Selecting a row shows the reasons in full");
+        audit.PressRow(row);
+        Check(current == illegal && tabs.SelectedIndex == DetailsTab && search.Text.Length == 0 && tool == audit, "Clicking a row shows that Pokémon in the editor and leaves the audit open");
+        restoreSelected.PerformClick();
+        audit.PressAgain(); WaitFor(() => !audit.Working, "the second audit");
+        Check(audit.RowOf(illegal) < 0, "Checking again sees that the edit was undone");
+        audit.Close();
+        Check(tool == null, "Closing a tool lets go of it");
+
+        toolsMenu.Items.Cast<ToolStripItem>().First(i => i.Text == T("Auditoría de legalidad")).PerformClick();
+        var stopped = tool!; stopped.Close();
+        WaitFor(() => stopped.IsDisposed, "closing a tool that was working");
+        for (int i = 0; i < 50; i++) { Application.DoEvents(); Thread.Sleep(2); }
+        Check(tool == null, "A tool can be closed while it works");
+
+        var report = OpenFromMenu<BoxReportWindow>(T("Informe de cajas"));
+        Check(report.RowCount == document.Pokemon.Count && report.Cell(0, 1) == document.Pokemon[0].SpeciesName, "The report has a row for every Pokémon");
+        report.SortBy(3);
+        var levels = Enumerable.Range(0, report.RowCount).Select(i => int.Parse(report.Cell(i, 3))).ToList();
+        Check(levels.SequenceEqual(levels.Order()), "The report sorts numbers as numbers");
+        report.SortBy(0);
+        Check(report.RowOf(document.Pokemon[0]) == 0, "The report sorts places by position");
+        var csv = Path.Combine(scratch, "informe.csv"); report.ExportTo(csv);
+        Check(File.ReadAllLines(csv).Length == document.Pokemon.Count + 1 && report.StatusText.Contains(document.Pokemon.Count.ToString()), "The report exports to CSV");
+        report.PressRow(1);
+        Check(current == document.Pokemon[1], "Clicking a row of the report shows that Pokémon");
+        tabs.SelectedIndex = 0;
+
+        var other = Path.Combine(scratch, "otra");
+        document.Money = document.Save.Money == 1234 ? 4321 : 1234;
+        File.WriteAllBytes(other, document.BuildOutput());
+        document.ResetResources();
+        var compare = OpenFromMenu<CompareWindow>(T("Comparar partidas"));
+        Check(tool == compare && report.IsDisposed, "Opening a tool closes the previous one");
+        Check(compare.FirstPath == opened, "Comparing starts from the open save");
+        compare.PressCompare(opened, other); WaitFor(() => !compare.Working, "the comparison");
+        Check(compare.RowCount == 1 && compare.Cell(0, 0) == T("Dinero"), "The comparison finds the money that differs");
+        var notSave = Path.Combine(scratch, "nada.txt"); File.WriteAllText(notSave, "x");
+        compare.PressCompare(opened, notSave); WaitFor(() => !compare.Working, "the refused comparison");
+        Check(compare.RowCount == 0 && compare.StatusText.Length != 0, "A file that isn't a save is refused with an explanation");
+        compare.PressCompare(opened, ""); WaitFor(() => !compare.Working, "the empty comparison");
+        Check(compare.StatusText == T("Elige dos partidas del mismo juego."), "Comparing needs two files");
+        compare.Close();
+
+        var copy = Path.Combine(scratch, "main"); File.Copy(opened, copy, true);
+        LoadFile(copy);
+        var before = document!.OriginalBytes;
+        document.Money = document.Save.Money == 1234 ? 4321 : 1234;
+        document.Write(copy, BackupRoot, _ => null);
+        LoadFile(copy);
+        var edited = File.ReadAllBytes(copy);
+        var backups = OpenFromMenu<BackupWindow>(T("Administrar respaldos"));
+        Check(backups.RowCount == 1 && backups.Cell(0, 2) == T("Dinero") && backups.Cell(0, 1).Length != 0, "The backups list shows game and what changed");
+        Check(backups.CanPressRestore && backups.DetailText.Contains(copy), "Selecting a backup says which file it belongs to");
+        backups.FindEmulator = _ => "Eden"; backups.Confirm = _ => true;
+        backups.PressRestore();
+        Check(backups.StatusText.Contains("Eden") && File.ReadAllBytes(copy).SequenceEqual(edited) && tool == backups, "Restoring is refused while the emulator is open");
+        backups.FindEmulator = _ => null;
+        string? question = null; backups.Confirm = text => { question = text; return false; };
+        backups.PressRestore();
+        Check(question?.Contains(copy) == true && File.ReadAllBytes(copy).SequenceEqual(edited), "Restoring asks first, naming the file, and No leaves it alone");
+        document!.Money = 0;
+        backups.Confirm = text => { question = text; return true; };
+        backups.PressRestore();
+        Check(question!.Contains(T("Los cambios sin guardar de esta partida se perderán.")), "Restoring warns about pending edits");
+        Check(File.ReadAllBytes(copy).SequenceEqual(before) && document!.OriginalBytes.SequenceEqual(before) && !document.HasChanges, "Restoring the open save reloads it, byte for byte");
+        Check(tool == null && SaveTools.ListBackups(BackupRoot).Count == 2, "Restoring keeps a copy of what it replaced, and the tool closes with the old document");
+
+        var keep = document; document = null;
+        tool = null;
+        var noSave = OpenFromMenu<BackupWindow>(T("Administrar respaldos"));
+        Check(noSave.RowCount == 2, "Backups can be reached with no save open, in case it no longer opens");
+        noSave.Close();
+        toolsMenu.Items.Cast<ToolStripItem>().First(i => i.Text == T("Informe de cajas")).PerformClick();
+        Check(tool == null && status.Text == T("Abre una partida primero."), "A tool that needs a save says so");
+        document = keep;
+        LoadFile(opened); scratchBackups = null;
+        Check(document!.FilePath == opened && !document.HasChanges, "The checks leave the app on the save they started from");
+    }
+
+    // Every tool, full of data, at its own size and at the smallest it allows.
+    void CheckToolLayouts(Action<bool, string> Check, string reportPath)
+    {
+        string scratch = ToolScratch(reportPath);
+        scratchBackups = Path.Combine(scratch, "Backups");
+        var copy = Path.Combine(scratch, "main"); File.Copy(document!.FilePath, copy, true);
+        var written = SaveDocument.Read(copy);
+        written.Money = written.Save.Money == 1234 ? 4321 : 1234; written.Pokemon[0].Edit.Level = written.Pokemon[0].Edit.Level == 50 ? 51 : 50;
+        written.Write(copy, BackupRoot, _ => null);
+        void Inspect(ToolWindow window, string name)
+        {
+            foreach (var (label, size) in new[] { ("normal", window.Size), ("minimum", window.MinimumSize) })
+            {
+                window.Size = size; window.PerformLayout(); Application.DoEvents();
+                var clipped = Clipped(window);
+                Check(clipped.Length == 0, $"Every text fits ({name}, {label} window) {clipped}");
+                Check(window.ButtonsFit, $"Every button fits ({name}, {label} window)");
+                using var picture = Theme.Capture(window);
+                picture.Save($"{reportPath}.{name}-{label}.png", System.Drawing.Imaging.ImageFormat.Png);
+            }
+        }
+        Inspect(OpenFromMenu<AuditWindow>(T("Auditoría de legalidad")), "audit");
+        Inspect(OpenFromMenu<BoxReportWindow>(T("Informe de cajas")), "report");
+        var backups = OpenFromMenu<BackupWindow>(T("Administrar respaldos"));
+        Inspect(backups, "backups");
+        var compare = OpenFromMenu<CompareWindow>(T("Comparar partidas"));
+        compare.PressCompare(copy, document.FilePath); WaitFor(() => !compare.Working, "the comparison");
+        Check(compare.RowCount != 0, "The comparison shows something to lay out");
+        Inspect(compare, "compare");
+        compare.Close(); scratchBackups = null;
+    }
+
+    internal void OpenToolForChecks() => toolsMenu.Items[0].PerformClick();
+
     void CheckLayout(Action<bool, string> Check, string sizeLabel)
     {
         tabs.SelectedIndex = 0; PerformLayout(); Application.DoEvents();
+        var outside = Descendants(this).OfType<Button>().FirstOrDefault(b => b.Visible && b.Parent is FlowLayoutPanel && b.Left < 0);
+        Check(outside == null, $"Every button of the header and the footer fits ({sizeLabel}) {outside?.Text}");
         var grid = (TableLayoutPanel)ivs[0].Parent!;
         for (int i = 0; i < 6; i++)
         {
@@ -891,6 +1085,7 @@ public sealed class EditorView : UserControl
         Check(document != null && Strings.Current.Code == expected.Language && Theme.IsDark == expected.Dark, "The window opens in the chosen language and theme");
         CheckLayout(Check, "normal window");
         Window.Size = Window.MinimumSize; CheckLayout(Check, "minimum window");
+        CheckToolLayouts(Check, reportPath);
         File.WriteAllText(reportPath, JsonSerializer.Serialize(new { passed = checks.Count, checks }, new JsonSerializerOptions { WriteIndented = true }));
     }
 
