@@ -1,0 +1,23 @@
+<!--
+  Builds lib/PKHeX.Core.AutoMod.dll from upstream's sources, against the PKHeX.Core this app ships.
+  Sources is the folder that holds AutoMod and Enhancements. build-tools/AutoLegality-notes.md has the steps.
+-->
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <AssemblyName>PKHeX.Core.AutoMod</AssemblyName>
+    <RootNamespace>PKHeX.Core.AutoMod</RootNamespace>
+    <Version>26.08.27</Version>
+    <SourceRevisionId>90410f2</SourceRevisionId>
+    <LangVersion>14</LangVersion>
+    <Nullable>enable</Nullable>
+    <NeutralLanguage>en</NeutralLanguage>
+    <DebugType>none</DebugType>
+    <Deterministic>true</Deterministic>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="$(Sources)/AutoMod/**/*.cs;$(Sources)/Enhancements/**/*.cs" />
+    <Reference Include="PKHeX.Core"><HintPath>../../lib/PKHeX.Core.dll</HintPath></Reference>
+  </ItemGroup>
+</Project>
