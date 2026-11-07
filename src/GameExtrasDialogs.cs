@@ -23,7 +23,7 @@ abstract class ExtraDialog : Form
     protected ExtraDialog(string title, string note, Size size)
     {
         Text = title; Font = Theme.Font(); BackColor = Theme.Background; ForeColor = Theme.Ink;
-        Size = size; MinimumSize = new Size(size.Width, SmallestHeight); StartPosition = FormStartPosition.CenterParent;
+        Size = size; MinimumSize = new Size(size.Width, Math.Min(size.Height, SmallestHeight)); StartPosition = FormStartPosition.CenterParent;
         MinimizeBox = MaximizeBox = false; ShowInTaskbar = false; AutoScaleMode = AutoScaleMode.Dpi;
         layout.ColumnStyles.Add(new(SizeType.Percent, 100));
         layout.RowStyles.Add(new(SizeType.AutoSize)); layout.RowStyles.Add(new(SizeType.Percent, 100)); layout.RowStyles.Add(new(SizeType.AutoSize));
@@ -335,6 +335,192 @@ sealed class FameDialog : ExtraDialog
     internal int RowCount => Grid.Rows.Count;
 }
 
+/// <summary>Which raids are on, and their seeds. What changes here stays pending until the game is saved.</summary>
+sealed class RaidsDialog : ExtraDialog
+{
+    const int PlaceColumn = 0, ActiveColumn = 1, SeedColumn = 2, StarsColumn = 3;
+    readonly RaidEditor editor;
+    readonly ComboBox region = Theme.Combo();
+    readonly Button allOn = Theme.Button(T("Activar todas")), allOff = Theme.Button(T("Desactivar todas")), undo = Theme.Button(T("Deshacer incursiones"));
+    bool binding;
+
+    public RaidsDialog(RaidEditor editor) : base(T("Incursiones"), T("El juego vuelve a generar las incursiones cuando cambia el día, así que esto dura hasta entonces.") + "\n" + T("Los cambios se aplican al guardar la partida."), new Size(760, 640))
+    {
+        this.editor = editor;
+        Grid.SelectionMode = DataGridViewSelectionMode.CellSelect; Grid.EditMode = DataGridViewEditMode.EditOnEnter;
+        AddText(T("Lugar")); Grid.Columns[PlaceColumn].ReadOnly = true;
+        AddTick(T("Activa"), 90); AddText(T("Semilla"), 200, editable: true, longest: editor.SeedDigits);
+        if (editor.HasStars) AddText(T("Estrellas"), 100, editable: true, longest: 1);
+        AddButton(undo); AddButton(allOff); AddButton(allOn);
+        region.Items.AddRange(editor.Regions.ToArray<object>());
+        region.Margin = new Padding(3, 2, 3, 8); region.Dock = DockStyle.Top; AddTop(region);
+        region.SelectedIndexChanged += (_, _) => { Grid.EndEdit(); FillRows(); };
+        // A tick counts when it is made. A seed counts when it is finished.
+        Grid.CurrentCellDirtyStateChanged += (_, _) => { if (Grid.CurrentCell is DataGridViewCheckBoxCell && Grid.IsCurrentCellDirty) Grid.CommitEdit(DataGridViewDataErrorContexts.Commit); };
+        Grid.CellValueChanged += (_, e) => { if (!binding && e.RowIndex >= 0) Edited(Grid.Rows[e.RowIndex], e.ColumnIndex); };
+        allOn.Click += (_, _) => SetAll(true);
+        allOff.Click += (_, _) => SetAll(false);
+        undo.Click += (_, _) => { Grid.CancelEdit(); editor.Reset(); FillRows(); };
+        FormClosing += (_, _) => Grid.EndEdit();
+        allOn.Enabled = allOff.Enabled = editor.Spots.Count != 0;
+        if (region.Items.Count != 0) region.SelectedIndex = 0;
+        else { undo.Enabled = false; region.Visible = false; Say(T("Esta partida aún no tiene incursiones.")); }
+    }
+
+    IEnumerable<RaidSpot> InRegion => editor.Spots.Where(s => s.RegionName == (string?)region.SelectedItem);
+
+    void FillRows()
+    {
+        binding = true;
+        Grid.Rows.Clear();
+        foreach (var spot in InRegion) Grid.Rows[Grid.Rows.Add()].Tag = spot;
+        binding = false;
+        foreach (DataGridViewRow row in Grid.Rows) Show(row);
+        ShowState();
+    }
+
+    void Show(DataGridViewRow row)
+    {
+        var spot = (RaidSpot)row.Tag!;
+        var state = editor.Get(spot);
+        bool changed = state != editor.Original(spot);
+        binding = true;
+        row.Cells[PlaceColumn].Value = spot.Place + (changed ? PendingMark : "");
+        row.Cells[ActiveColumn].Value = state.Active;
+        row.Cells[SeedColumn].Value = editor.SeedText(spot);
+        if (editor.HasStars) row.Cells[StarsColumn].Value = (state.Stars + 1).ToString(CultureInfo.CurrentCulture);
+        Mark(row, changed);
+        binding = false;
+    }
+
+    void ShowState() => undo.Enabled = editor.ChangeCount != 0;
+
+    void Edited(DataGridViewRow row, int column)
+    {
+        var spot = (RaidSpot)row.Tag!;
+        string text = row.Cells[column].Value?.ToString() ?? "";
+        string? problem = null;
+        if (column == ActiveColumn) editor.SetActive(spot, (bool)row.Cells[column].Value!);
+        else if (column == SeedColumn) problem = editor.SetSeed(spot, text);
+        else if (column == StarsColumn) problem = editor.SetStars(spot, int.TryParse(text, out int stars) ? stars : 0);
+        // What can't be used goes back to what it was, and the line below says why.
+        Show(row); ShowState(); Say(problem ?? "", problem != null);
+    }
+
+    void SetAll(bool active)
+    {
+        Grid.EndEdit();
+        foreach (var spot in InRegion) editor.SetActive(spot, active);
+        foreach (DataGridViewRow row in Grid.Rows) Show(row);
+        ShowState();
+    }
+
+    /// <summary>What a user does here, for the automatic checks.</summary>
+    internal void RunInteractionChecks(Action<bool, string> check)
+    {
+        Grid.EndEdit();
+        var spot = (RaidSpot)Grid.Rows[0].Tag!;
+        check(Grid.Rows.Count == InRegion.Count() && Grid.Rows.Count != 0 && !undo.Enabled, "The raids window lists the raids of the first region");
+        bool active = editor.Get(spot).Active;
+        Grid.Rows[0].Cells[ActiveColumn].Value = !active;
+        check(editor.Get(spot).Active != active && editor.ChangeCount == 1 && undo.Enabled && Grid.Rows[0].Cells[PlaceColumn].Value!.ToString()!.Contains('●'), "A tick stages the raid, and it stands out");
+        Grid.Rows[0].Cells[SeedColumn].Value = "not a seed";
+        check(StatusText.Length != 0 && (string)Grid.Rows[0].Cells[SeedColumn].Value! == editor.SeedText(spot), "A bad seed goes back to what it was and says why");
+        Grid.Rows[0].Cells[SeedColumn].Value = "BEEF";
+        check(StatusText.Length == 0 && editor.Get(spot).Seed == 0xBEEF && (string)Grid.Rows[0].Cells[SeedColumn].Value! == editor.SeedText(spot), "A good seed clears the warning and shows all its digits");
+        if (editor.HasStars)
+        {
+            Grid.Rows[0].Cells[StarsColumn].Value = "9";
+            check(StatusText.Length != 0 && editor.Get(spot).Stars != 8, "A number of stars the game hasn't got is refused");
+            Grid.Rows[0].Cells[StarsColumn].Value = "5";
+            check(editor.Get(spot).Stars == 4, "Stars are shown as the game shows them");
+        }
+        allOn.PerformClick();
+        check(InRegion.All(s => editor.Get(s).Active), "Everything in a region can be turned on at once");
+        check(EditorView.Clipped(this).Length == 0, "Raids window texts fit");
+        undo.PerformClick();
+        check(editor.ChangeCount == 0 && !undo.Enabled && (bool)Grid.Rows[0].Cells[ActiveColumn].Value! == active, "Undo restores the raids");
+    }
+}
+
+/// <summary>The points of the Pokéathlon. What changes here stays pending until the game is saved.</summary>
+sealed class PokeathlonDialog : ExtraDialog
+{
+    const int ValueColumn = 1, PointsRow = 0;
+    readonly PokeathlonEditor editor;
+    readonly Button undo = Theme.Button(T("Deshacer puntos"));
+    bool binding;
+
+    public PokeathlonDialog(PokeathlonEditor editor) : base(T("Pokéathlon"), T("Son los puntos que se gastan en la tienda del Domo. Llegan hasta {0:N0}.", editor.MaxPoints) + "\n" + T("Los cambios se aplican al guardar la partida."), new Size(560, 330))
+    {
+        this.editor = editor;
+        Grid.SelectionMode = DataGridViewSelectionMode.CellSelect; Grid.EditMode = DataGridViewEditMode.EditOnEnter;
+        AddText(T("Dato")); Grid.Columns[0].ReadOnly = true;
+        AddText(T("Valor"), 180, editable: true, longest: editor.MaxPoints.ToString(CultureInfo.InvariantCulture).Length + 1);
+        AddButton(undo);
+        binding = true; Grid.Rows.Add(T("Puntos"), ""); binding = false;
+        Grid.CellValueChanged += (_, e) => {
+            if (binding || e.RowIndex < 0) return;
+            if (uint.TryParse(Grid[ValueColumn, PointsRow].Value?.ToString(), NumberStyles.Integer, CultureInfo.CurrentCulture, out uint points)) editor.Points = points;
+            ShowState(editor.Validate() ?? (editor.Points.ToString(CultureInfo.InvariantCulture) == Grid[ValueColumn, PointsRow].Value?.ToString() ? "" : T("Los puntos deben estar entre 0 y {0:N0}.", editor.MaxPoints)));
+        };
+        undo.Click += (_, _) => { Grid.CancelEdit(); editor.Reset(); ShowState(""); };
+        Load += (_, _) => Grid.CurrentCell = Grid[ValueColumn, PointsRow];
+        FormClosing += (_, _) => Grid.EndEdit();
+        ShowState("");
+    }
+
+    void ShowState(string problem)
+    {
+        binding = true;
+        if (problem.Length == 0 || editor.Validate() == null) Grid[ValueColumn, PointsRow].Value = editor.Points.ToString(CultureInfo.InvariantCulture);
+        Grid[0, PointsRow].Value = T("Puntos") + (editor.Changed ? PendingMark : "");
+        Mark(Grid.Rows[PointsRow], editor.Changed);
+        binding = false;
+        Say(problem, true);
+        undo.Enabled = editor.Changed;
+    }
+
+    /// <summary>What a user does here, for the automatic checks.</summary>
+    internal void RunInteractionChecks(Action<bool, string> check)
+    {
+        Grid.EndEdit();
+        var cell = Grid[ValueColumn, PointsRow];
+        check(!undo.Enabled && (string)cell.Value! == editor.Original.ToString(CultureInfo.InvariantCulture), "The Pokéathlon window shows the points");
+        cell.Value = "1234";
+        check(editor.Points == 1234 && editor.Changed && undo.Enabled, "New points stay pending");
+        cell.Value = "letras";
+        check(StatusText.Length != 0 && editor.Points == 1234 && (string)cell.Value! == "1234", "Something that isn't a number goes back and says why");
+        cell.Value = (editor.MaxPoints + 1).ToString(CultureInfo.InvariantCulture);
+        check(StatusText.Length != 0 && editor.Validate() != null, "Too many points explain why they can't be saved");
+        check(EditorView.Clipped(this).Length == 0, "Pokéathlon window texts fit");
+        undo.PerformClick();
+        check(!editor.Changed && !undo.Enabled && StatusText.Length == 0, "Undo restores the points");
+    }
+}
+
+/// <summary>The secret bases of Hoenn, to look at.</summary>
+sealed class SecretBasesDialog : ExtraDialog
+{
+    public SecretBasesDialog(SaveFile save) : base(T("Bases secretas"), T("Aquí solo se consulta: nada de esto cambia la partida."), new Size(760, 520))
+    {
+        Grid.ReadOnly = true;
+        AddText(T("Propietario"));
+        if (save is SAV6AO) { AddText(T("Equipo"), 200); AddText(T("Rango"), 110); }
+        AddText(T("Lugar"), 90);
+        var bases = SecretBases.Read(save);
+        foreach (var entry in bases)
+        {
+            string place = entry.Location.ToString(CultureInfo.CurrentCulture);
+            if (save is SAV6AO) Grid.Rows.Add(entry.Owner, entry.Team, entry.Rank, place);
+            else Grid.Rows.Add(entry.Owner, place);
+        }
+        if (bases.Count == 0) Say(T("Esta partida aún no tiene bases secretas."));
+    }
+
+    internal int RowCount => Grid.Rows.Count;
+}
+
 /// <summary>The tools that depend on the game, in the Tools menu and in the automatic checks.</summary>
 public sealed partial class EditorView
 {
@@ -352,6 +538,9 @@ public sealed partial class EditorView
         Add(T("Guardería…"), DaycareEditor.IsKept, d => new DaycareDialog(d, box));
         Add(T("Regalos recibidos…"), GiftEditor.IsKept, d => new GiftsDialog(d.Gifts));
         Add(T("Salón de la Fama…"), FameRecords.IsKept, d => new FameDialog(d.Save));
+        Add(T("Incursiones…"), RaidEditor.IsKept, d => new RaidsDialog(d.Raids));
+        Add(T("Pokéathlon…"), PokeathlonEditor.IsKept, d => new PokeathlonDialog(d.Pokeathlon));
+        Add(T("Bases secretas…"), SecretBases.IsKept, d => new SecretBasesDialog(d.Save));
     }
 
     // A game that doesn't keep something doesn't offer it.
@@ -402,6 +591,21 @@ public sealed partial class EditorView
         return new(new GameRules(save));
     }
 
+    static RaidEditor RaidSample()
+    {
+        var save = (SAV8SWSH)Blank(GameVersion.SW);
+        save.RaidGalar.GetRaid(0).Activate(4, 50, rare: true);
+        return new(save);
+    }
+
+    static SaveFile BaseSample()
+    {
+        var save = (SAV6AO)Blank(GameVersion.OR);
+        var mine = save.SecretBase.GetSecretBaseSelf();
+        mine.BaseLocation = 25; mine.TrainerName = "Ana"; mine.TeamName = "Equipo Rojo"; mine.Rank = SecretBase6Rank.Platinum;
+        return save;
+    }
+
     static SaveFile FameSample()
     {
         var save = (SAV6XY)Blank(GameVersion.X);
@@ -434,11 +638,14 @@ public sealed partial class EditorView
         using (var dialog = OffScreen(new DaycareDialog(DaycareSample(egg: true), 0))) dialog.RunEggChecks(Check);
         using (var dialog = OffScreen(new GiftsDialog(GiftSample()))) dialog.RunInteractionChecks(Check);
         using (var dialog = OffScreen(new FameDialog(FameSample()))) Check(dialog.RowCount == HallOfFame6.Entries * HallOfFame6.PokeCount, "The Hall of Fame lists every member of every visit");
+        using (var dialog = OffScreen(new RaidsDialog(RaidSample()))) dialog.RunInteractionChecks(Check);
+        using (var dialog = OffScreen(new PokeathlonDialog(new PokeathlonEditor(Blank(GameVersion.HG))))) dialog.RunInteractionChecks(Check);
+        using (var dialog = OffScreen(new SecretBasesDialog(BaseSample()))) Check(dialog.RowCount == 1, "The secret bases window lists the bases in use");
     }
 
     void CheckExtraLayouts(Action<bool, string> Check, string sizeLabel)
     {
-        var windows = new (string Name, Form Window)[] { ("boxnames", new BoxNamesDialog(document!, 0)), ("daycare", new DaycareDialog(DaycareSample(), 0)), ("gifts", new GiftsDialog(GiftSample())), ("fame", new FameDialog(FameSample())) };
+        var windows = new (string Name, Form Window)[] { ("boxnames", new BoxNamesDialog(document!, 0)), ("daycare", new DaycareDialog(DaycareSample(), 0)), ("gifts", new GiftsDialog(GiftSample())), ("fame", new FameDialog(FameSample())), ("raids", new RaidsDialog(RaidSample())), ("pokeathlon", new PokeathlonDialog(new PokeathlonEditor(Blank(GameVersion.HG)))), ("bases", new SecretBasesDialog(BaseSample())) };
         foreach (var (name, dialog) in windows)
         {
             using (OffScreen(dialog))

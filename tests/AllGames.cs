@@ -1638,6 +1638,9 @@ static class AllGames
         DaycareVisit(version, label, work);
         ReceivedGifts(version, label, work);
         HallOfFame(version, label, work);
+        Raids(version, label, work);
+        Pokeathlon(version, label, work);
+        SecretBaseList(version, label, work);
     }
 
     static SaveDocument Reopened(SaveDocument doc, string work, string name)
@@ -2040,6 +2043,128 @@ static class AllGames
         Check(label, member.Species == species, "lee al Pokémon", member.Species.ToString());
         if (sav is not SAV7) Check(label, member.Level == 50 && member.Nickname.Length != 0, "lee el nivel y el apodo", $"{member.Level} {member.Nickname}");
         if (sav is SAV6) Check(label, entries[0].Date == new DateOnly(2016, 2, 27) && member.IsShiny && entries[0].Title.Contains('3'), "lee la fecha, el shiny y el número", entries[0].Title);
+    }
+
+    static void Raids(GameVersion version, string label, string work)
+    {
+        var sav = OneFound(version);
+        bool kept = sav is SAV8SWSH or SAV9SV;
+        Check(label, RaidEditor.IsKept(sav) == kept, "ofrece las incursiones solo donde existen");
+        if (!kept) return;
+        const ulong firstSeed = 0x1234;
+        switch (sav)
+        {
+            case SAV8SWSH s:
+                var den = s.RaidGalar.GetRaid(0);
+                den.Hash = 0xABCDEF; den.Seed = firstSeed; den.Activate(2, 50);
+                s.RaidGalar.GetRaid(1).Hash = 0x123456;
+                break;
+            case SAV9SV s:
+                var on = s.RaidPaldea.GetRaid(0);
+                on.AreaID = 3; on.SpawnPointID = 2; on.Seed = (uint)firstSeed; on.IsEnabled = true; on.Content = TeraRaidContentType.Black6;
+                var off = s.RaidPaldea.GetRaid(1);
+                off.AreaID = 4; off.SpawnPointID = 1;
+                break;
+        }
+        var path = Path.Combine(work, version + ".raids.sav");
+        File.WriteAllBytes(path, TestSaves.Finish(sav));
+
+        var doc = SaveDocument.Open(path);
+        var raids = doc.Raids;
+        var first = raids.Spots[0]; var second = raids.Spots[1];
+        Check(label, sav is SAV9SV ? raids.Spots.Count == 2 : raids.Spots.Count == RaidSpawnList8.RaidCountLegal_O0 + RaidSpawnList8.RaidCountLegal_R1 + RaidSpawnList8.RaidCountLegal_R2 - 1, "lista los lugares con incursión", raids.Spots.Count.ToString());
+        if (sav is SAV8SWSH) Check(label, raids.Spots.All(s => s.Index != 16 || s.Region != 0), "deja en paz la guarida especial de la torre");
+        Check(label, raids.Get(first) == new RaidState(true, firstSeed, sav is SAV8SWSH ? (byte)2 : (byte)0) && !raids.Get(second).Active, "lee activación, semilla y estrellas", raids.Get(first).ToString());
+        Check(label, first.Place.Length != 0 && first.RegionName.Length != 0 && raids.Regions.Any() && !doc.HasChanges, "mirar las incursiones no deja cambios");
+        Check(label, raids.SeedText(first).Length == raids.SeedDigits && raids.SeedDigits == (sav is SAV8SWSH ? 16 : 8), "muestra la semilla con sus cifras", raids.SeedText(first));
+
+        Check(label, raids.SetSeed(first, "XYZ") != null && raids.SetSeed(first, "") != null && raids.SetSeed(first, new string('F', raids.SeedDigits + 1)) != null && raids.ChangeCount == 0, "rechaza semillas imposibles");
+        if (raids.HasStars) Check(label, raids.SetStars(first, 0) != null && raids.SetStars(first, 6) != null && raids.ChangeCount == 0, "rechaza estrellas imposibles");
+        else Check(label, raids.SetStars(first, 3) != null, "este juego no guarda estrellas aquí");
+        raids.SetActive(first, false);
+        raids.SetActive(second, true);
+        Check(label, raids.SetSeed(second, "abcdef12") == null && raids.Get(second).Seed == 0xABCDEF12, "acepta la semilla en hexadecimal");
+        if (raids.HasStars) Check(label, raids.SetStars(second, 5) == null && raids.Get(second).Stars == 4, "el juego guarda una estrella menos");
+        Check(label, raids.ChangeCount == 2 && doc.ToolChangeCount == 2 && doc.HasChanges, "los cambios quedan pendientes");
+        var bytes = doc.BuildOutput();
+        Check(label, bytes.SequenceEqual(doc.BuildOutput()), "guardar dos veces da lo mismo");
+        var read = Reopened(doc, work, version + ".raids.out.sav");
+        var after = read.Raids;
+        Check(label, !after.Get(after.Spots[0]).Active && after.Get(after.Spots[1]).Active && after.Get(after.Spots[1]).Seed == 0xABCDEF12, "guarda la activación y la semilla");
+        Check(label, !read.HasChanges && read.Pokemon.Count == doc.Pokemon.Count && read.Save.Money == doc.Save.Money, "conserva el resto de la partida");
+        if (read.Save is SAV8SWSH sword)
+        {
+            var woken = sword.RaidGalar.GetRaid(1);
+            Check(label, woken.Stars == 4 && woken.RandRoll is >= 1 and <= 100 && woken.Hash == 0x123456 && woken.DenType == RaidType.Common, "una guarida activada queda como las del juego", woken.Dump());
+            var slept = sword.RaidGalar.GetRaid(0);
+            Check(label, slept.DenType == RaidType.None && slept.Stars == 0 && slept.RandRoll == 0 && slept.Hash == 0xABCDEF, "una guarida apagada conserva su lugar", slept.Dump());
+        }
+        if (read.Save is SAV9SV scarlet) Check(label, scarlet.RaidPaldea.GetRaid(0).Content == TeraRaidContentType.Black6 && scarlet.RaidPaldea.GetRaid(1).AreaID == 4, "conserva el contenido y el lugar del cristal");
+
+        raids.Reset();
+        Check(label, !doc.HasChanges && doc.BuildOutput().SequenceEqual(doc.OriginalBytes), "deshacer no deja rastro");
+        raids.SetActive(first, false); raids.SetActive(first, true);
+        Check(label, raids.ChangeCount == 0, "volver al estado original no es un cambio");
+
+        var copy = Path.Combine(work, version + ".raids.copy.sav");
+        File.Copy(path, copy, true);
+        var writer = SaveDocument.Open(copy);
+        writer.Raids.SetActive(writer.Raids.Spots[0], false);
+        var root = Path.Combine(work, "BackupsRaids" + version);
+        writer.Write(copy, root, _ => null);
+        Check(label, SaveTools.ListBackups(root).Single().Changes.Any(c => c.Contains(writer.Raids.Spots[0].Place)), "el respaldo anota la incursión");
+        Check(label, !SaveDocument.Open(copy).Raids.Get(writer.Raids.Spots[0]).Active, "el guardado real la apaga");
+    }
+
+    static void Pokeathlon(GameVersion version, string label, string work)
+    {
+        var sav = OneFound(version);
+        bool kept = sav is SAV4HGSS;
+        Check(label, PokeathlonEditor.IsKept(sav) == kept, "ofrece el Pokéathlon solo donde existe");
+        if (!kept) return;
+        var path = Path.Combine(work, version + ".athlon.sav");
+        File.WriteAllBytes(path, TestSaves.Finish(sav));
+        var doc = SaveDocument.Open(path);
+        var athlon = doc.Pokeathlon;
+        Check(label, athlon.Original == 0 && !doc.HasChanges, "abrir el Pokéathlon no deja cambios");
+        athlon.Points = 1234;
+        Check(label, athlon.Changed && doc.ToolChangeCount == 1 && doc.HasChanges, "los puntos quedan pendientes");
+        var read = Reopened(doc, work, version + ".athlon.out.sav");
+        Check(label, read.Pokeathlon.Original == 1234 && read.Pokemon.Count == doc.Pokemon.Count && !read.HasChanges, "guarda los puntos", read.Pokeathlon.Original.ToString());
+        athlon.Points = athlon.MaxPoints;
+        Check(label, Reopened(doc, work, version + ".athlon.top.sav").Pokeathlon.Original == athlon.MaxPoints, "guarda el máximo");
+        athlon.Points = athlon.MaxPoints + 1;
+        Check(label, athlon.Validate() != null && doc.ValidateEdits() != null, "rechaza pasarse del máximo");
+        athlon.Reset();
+        Check(label, !doc.HasChanges && doc.BuildOutput().SequenceEqual(doc.OriginalBytes), "deshacer no deja rastro");
+    }
+
+    static void SecretBaseList(GameVersion version, string label, string work)
+    {
+        var sav = OneFound(version);
+        bool kept = sav is SAV3RS or SAV3E or SAV6AO;
+        Check(label, SecretBases.IsKept(sav) == kept, "ofrece las bases secretas solo en Hoenn");
+        Check(label, SecretBases.Read(sav).Count == 0, "una partida sin bases no lista ninguna", SecretBases.Read(sav).Count.ToString());
+        if (!kept) return;
+        const string owner = "ANA";
+        switch (sav)
+        {
+            case SAV6AO s:
+                var mine = s.SecretBase.GetSecretBaseSelf();
+                mine.BaseLocation = 25; mine.TrainerName = owner; mine.TeamName = "ROJO"; mine.Rank = SecretBase6Rank.Gold;
+                break;
+            default:
+                var slot = (sav is SAV3E e ? e.LargeBlock.SecretBases : ((SAV3RS)sav).LargeBlock.SecretBases).Bases[0];
+                slot.SecretBaseLocation = 7; slot.OriginalTrainerName = owner;
+                break;
+        }
+        var path = Path.Combine(work, version + ".bases.sav");
+        File.WriteAllBytes(path, TestSaves.Finish(sav));
+        var doc = SaveDocument.Open(path);
+        var bases = SecretBases.Read(doc.Save);
+        Check(label, bases.Count == 1 && bases[0].Owner == owner && bases[0].Location == (sav is SAV6AO ? 25 : 7), "lee la base", bases.Count.ToString());
+        if (sav is SAV6AO) Check(label, bases[0].Team == "ROJO" && bases[0].Rank == T("Oro"), "lee el equipo y el rango", bases[0].Rank);
+        Check(label, !doc.HasChanges && doc.BuildOutput().SequenceEqual(doc.OriginalBytes), "mirar las bases no deja cambios");
     }
 
     /// <summary>The byte-level proof on a real Z-A save: a new box name changes that block and nothing else.</summary>

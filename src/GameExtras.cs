@@ -512,18 +512,195 @@ public static class FameRecords
     }
 }
 
+/// <summary>A raid's place in a game: a den in Sword and Shield, a crystal in Scarlet and Violet.</summary>
+public sealed record RaidSpot(int Region, int Index, string RegionName, string Place);
+
+public sealed record RaidState(bool Active, ulong Seed, byte Stars);
+
+/// <summary>Which raids are on and what their seeds are, as pending changes. PKHeX's model decides what each of those writes.</summary>
+public sealed class RaidEditor
+{
+    const int Watchtower = 16, GalarRegion = 0, Rolls = 100, DenSeedDigits = 16, CrystalSeedDigits = 8;
+    readonly SaveFile save;
+    readonly Dictionary<RaidSpot, RaidState> originals = [];
+    readonly Dictionary<RaidSpot, RaidState> changes = [];
+
+    public RaidEditor(SaveFile save)
+    {
+        this.save = save;
+        if (save is SAV8SWSH sword)
+        {
+            var dens = Dens(sword);
+            string[] names = [T("Galar"), T("Isla de la Armadura"), T("Nieves de la Corona")];
+            for (int region = 0; region < dens.Length; region++)
+            {
+                // A save without the expansion has no room for its dens.
+                if (dens[region].Data.Length < dens[region].CountUsed * RaidSpawnDetail.SIZE) continue;
+                for (int i = 0; i < dens[region].CountUsed; i++)
+                {
+                    if (region == GalarRegion && i == Watchtower) continue;   // PKHeX keeps away from this one: it has rules of its own
+                    var raid = dens[region].GetRaid(i);
+                    originals[new(region, i, names[region], T("Guarida {0}", i + 1))] = new(raid.IsActive, raid.Seed, raid.Stars);
+                }
+            }
+        }
+        else if (save is SAV9SV scarlet)
+        {
+            var crystals = Crystals(scarlet);
+            string[] names = [T("Paldea"), T("Noroteo"), T("Academia Arándano")];
+            for (int region = 0; region < crystals.Length; region++)
+                for (int i = 0; i < Math.Min(crystals[region].CountAll, crystals[region].CountUsed); i++)
+                {
+                    var raid = crystals[region].GetRaid(i);
+                    if (raid.AreaID != 0) originals[new(region, i, names[region], T("Zona {0} · Punto {1}", raid.AreaID, raid.SpawnPointID))] = new(raid.IsEnabled, raid.Seed, 0);
+                }
+        }
+        Spots = originals.Keys.ToList();
+    }
+
+    public static bool IsKept(SaveFile save) => save is SAV8SWSH or SAV9SV;
+
+    static RaidSpawnList8[] Dens(SAV8SWSH save) => [save.RaidGalar, save.RaidArmor, save.RaidCrown];
+    static RaidSpawnList9[] Crystals(SAV9SV save) => [save.RaidPaldea, save.RaidKitakami, save.RaidBlueberry];
+
+    public IReadOnlyList<RaidSpot> Spots { get; }
+    public IEnumerable<RaidSpot> Changed => changes.Keys;
+    public IEnumerable<string> Regions => Spots.Select(s => s.RegionName).Distinct();
+    public bool HasStars => save is SAV8SWSH;
+    public int SeedDigits => save is SAV8SWSH ? DenSeedDigits : CrystalSeedDigits;
+    public int ChangeCount => changes.Count;
+    public RaidState Get(RaidSpot spot) => changes.GetValueOrDefault(spot) ?? originals[spot];
+    public RaidState Original(RaidSpot spot) => originals[spot];
+    public void Reset() => changes.Clear();
+    public string SeedText(RaidSpot spot) => Get(spot).Seed.ToString("X" + SeedDigits, CultureInfo.InvariantCulture);
+
+    void Set(RaidSpot spot, RaidState state)
+    {
+        if (state == originals[spot]) changes.Remove(spot);
+        else changes[spot] = state;
+    }
+
+    public void SetActive(RaidSpot spot, bool active) => Set(spot, Get(spot) with { Active = active });
+
+    /// <summary>Takes the seed as the game shows it, and says what is wrong with it if it can't.</summary>
+    public string? SetSeed(RaidSpot spot, string text)
+    {
+        text = text.Trim();
+        if (text.Length == 0 || text.Length > SeedDigits || !ulong.TryParse(text, NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture, out ulong seed))
+            return T("La semilla tiene hasta {0} cifras hexadecimales.", SeedDigits);
+        Set(spot, Get(spot) with { Seed = seed });
+        return null;
+    }
+
+    /// <summary>The game shows one star more than it keeps.</summary>
+    public string? SetStars(RaidSpot spot, int stars)
+    {
+        if (!HasStars || stars is < 1 or > 5) return T("Las estrellas van de 1 a 5.");
+        Set(spot, Get(spot) with { Stars = (byte)(stars - 1) });
+        return null;
+    }
+
+    internal void WriteTo(SaveFile output)
+    {
+        foreach (var (spot, state) in changes)
+        {
+            if (output is SAV8SWSH sword)
+            {
+                var den = Dens(sword)[spot.Region].GetRaid(spot.Index);
+                den.Seed = state.Seed;
+                if (!state.Active) den.Deactivate();
+                // A den that was off has no roll of its own. Any from 1 to 100 is one the game could draw, and this one is the same in every build.
+                else if (!den.IsActive) den.Activate(state.Stars, (byte)(state.Seed % Rolls + 1));
+                else den.Stars = state.Stars;
+            }
+            else if (output is SAV9SV scarlet)
+            {
+                var crystal = Crystals(scarlet)[spot.Region].GetRaid(spot.Index);
+                crystal.IsEnabled = state.Active; crystal.Seed = (uint)state.Seed;
+            }
+        }
+    }
+
+    static IEnumerable<byte[]> Blocks(SaveFile save) => save is SAV8SWSH sword ? Dens(sword).Select(d => d.Data.ToArray()) : Crystals((SAV9SV)save).Select(c => c.Data.ToArray());
+
+    internal bool Matches(SaveFile reopened)
+    {
+        if (ChangeCount == 0) return true;
+        var expected = save.Clone();
+        WriteTo(expected);
+        return Blocks(expected).Zip(Blocks(reopened)).All(pair => pair.First.SequenceEqual(pair.Second));
+    }
+}
+
+/// <summary>The points of the Pokéathlon in HeartGold and SoulSilver, as a pending change.</summary>
+public sealed class PokeathlonEditor(SaveFile save)
+{
+    public static bool IsKept(SaveFile save) => save is SAV4HGSS;
+
+    public uint Original { get; } = ((SAV4HGSS)save).Pokeathlon.Points;
+    public uint Points { get; set; } = ((SAV4HGSS)save).Pokeathlon.Points;
+    public uint MaxPoints => Pokeathlon4.MaxPoints;
+    public bool Changed => Points != Original;
+    public void Reset() => Points = Original;
+    public string? Validate() => Changed && Points > MaxPoints ? T("Los puntos deben estar entre 0 y {0:N0}.", MaxPoints) : null;
+
+    internal void WriteTo(SaveFile output)
+    {
+        if (!Changed) return;
+        var block = ((SAV4HGSS)output).Pokeathlon;
+        block.Points = Points;
+    }
+
+    internal bool Matches(SaveFile reopened) => ((SAV4HGSS)reopened).Pokeathlon.Points == Points;
+}
+
+public sealed record SecretBaseEntry(string Owner, string Team, int Location, string Rank);
+
+/// <summary>The secret bases of the Hoenn games, to look at. Writing them shuffles places PKHeX can't check afterwards.</summary>
+public static class SecretBases
+{
+    public static bool IsKept(SaveFile save) => save is SAV3RS or SAV3E or SAV6AO;
+
+    public static List<SecretBaseEntry> Read(SaveFile save) => save switch {
+        SAV3RS s => Read3(s.LargeBlock.SecretBases),
+        SAV3E s => Read3(s.LargeBlock.SecretBases),
+        SAV6AO s => Read6(s),
+        _ => [],
+    };
+
+    // A slot nobody has used has no name and no place, whatever the rest of it holds.
+    static List<SecretBaseEntry> Read3(SecretBaseManager3 bases) => bases.Bases.Where(b => b.SecretBaseLocation != 0 && b.OriginalTrainerName.Length != 0)
+        .Select(b => new SecretBaseEntry(b.OriginalTrainerName, "", b.SecretBaseLocation, "")).ToList();
+
+    static List<SecretBaseEntry> Read6(SAV6AO save)
+    {
+        var block = save.SecretBase;
+        var entries = new List<SecretBase6> { block.GetSecretBaseSelf() };
+        entries.AddRange(Enumerable.Range(0, SecretBase6Block.OtherSecretBaseCount).Select(block.GetSecretBaseOther));
+        return entries.Where(b => !b.IsEmpty).Select(b => new SecretBaseEntry(b.TrainerName, b.TeamName, b.BaseLocation, RankName(b.Rank))).ToList();
+    }
+
+    static string RankName(SecretBase6Rank rank) => rank switch {
+        SecretBase6Rank.Bronze => T("Bronce"), SecretBase6Rank.Silver => T("Plata"), SecretBase6Rank.Gold => T("Oro"), SecretBase6Rank.Platinum => T("Platino"), _ => "",
+    };
+}
+
 /// <summary>The tools that belong to one game or another, and how a save reaches them.</summary>
 public sealed partial class SaveDocument
 {
     BoxNameEditor? boxNames;
     DaycareEditor? daycare;
     GiftEditor? gifts;
+    RaidEditor? raids;
+    PokeathlonEditor? pokeathlon;
 
     public BoxNameEditor BoxNames => boxNames ??= new(Rules);
     public DaycareEditor Daycare => daycare ??= new(this);
     public GiftEditor Gifts => gifts ??= new(Rules);
+    public RaidEditor Raids => raids ??= new(Save);
+    public PokeathlonEditor Pokeathlon => pokeathlon ??= new(Save);
     /// <summary>A Pokémon leaving the daycare already counts as a change of the boxes.</summary>
-    public int ExtraChangeCount => (boxNames?.ChangeCount ?? 0) + (gifts?.ChangeCount ?? 0);
+    public int ExtraChangeCount => (boxNames?.ChangeCount ?? 0) + (gifts?.ChangeCount ?? 0) + (raids?.ChangeCount ?? 0) + (pokeathlon?.Changed == true ? 1 : 0);
     IEnumerable<PokemonEntry> Withdrawn => daycare?.Withdrawn ?? [];
 
     /// <summary>The name a box will have once saved.</summary>
@@ -548,11 +725,11 @@ public sealed partial class SaveDocument
         if (Daycare.EntryOf(guest) is { } entry) Change(() => Pokemon.Remove(entry));
     }
 
-    string? ValidateExtras() => boxNames?.Validate();
+    string? ValidateExtras() => boxNames?.Validate() ?? pokeathlon?.Validate();
 
     void WriteExtras(SaveFile output)
     {
-        boxNames?.WriteTo(output); daycare?.WriteTo(output); gifts?.WriteTo(output);
+        boxNames?.WriteTo(output); daycare?.WriteTo(output); gifts?.WriteTo(output); raids?.WriteTo(output); pokeathlon?.WriteTo(output);
     }
 
     void CheckExtras(SaveFile reopened)
@@ -560,6 +737,8 @@ public sealed partial class SaveDocument
         if (boxNames?.ChangeCount > 0 && boxNames.FirstDifference(reopened) is { } box) throw new InvalidOperationException(T("No se pudo comprobar {0} después de guardar.", BoxName(box)));
         if (daycare?.Matches(reopened) == false) throw new InvalidOperationException(T("No se pudo comprobar {0} después de guardar.", T("Guardería")));
         if (gifts?.Matches(reopened) == false) throw new InvalidOperationException(T("No se pudo comprobar {0} después de guardar.", T("Regalos recibidos")));
+        if (raids?.Matches(reopened) == false) throw new InvalidOperationException(T("No se pudo comprobar {0} después de guardar.", T("Incursiones")));
+        if (pokeathlon?.Matches(reopened) == false) throw new InvalidOperationException(T("No se pudo comprobar {0} después de guardar.", T("Pokéathlon")));
     }
 
     /// <summary>For the record kept with each backup: a line for each thing that isn't a Pokémon, an item or the money.</summary>
@@ -571,5 +750,8 @@ public sealed partial class SaveDocument
             foreach (var guest in daycare.Leaving) yield return $"{T("Guardería")}: {daycare.Name(guest)} → {daycare.EntryOf(guest)!.Location}";
         if (gifts != null)
             foreach (var gift in gifts.Forgetting) yield return $"{T("Regalos recibidos")}: {gift.CardId} ({gifts.Contents(gift)})";
+        if (raids != null)
+            foreach (var spot in raids.Changed) yield return $"{T("Incursiones")}: {spot.RegionName} · {spot.Place}";
+        if (pokeathlon?.Changed == true) yield return $"{T("Pokéathlon")}: {pokeathlon.Original} → {pokeathlon.Points}";
     }
 }
