@@ -19,7 +19,7 @@ public sealed record AppSettings(string Language = "es", bool Dark = false)
     internal static AppSettings FirstRun()
     {
         var system = CultureInfo.CurrentUICulture.TwoLetterISOLanguageName;
-        return new(Languages.Any(l => l.Code == system) ? system : "en");
+        return new(Languages.FirstOrDefault(l => l.Code.Split('-')[0] == system)?.Code ?? "en");
     }
 
     // A folder that can't be written only means the choice lasts until the app closes.
@@ -42,28 +42,32 @@ sealed class SettingsDialog : Form
     readonly RadioButton light = new() { Text = T("Claro"), AutoSize = true, Font = Theme.Font(10), Margin = new Padding(0, 6, 18, 6) };
     readonly RadioButton dark = new() { Text = T("Oscuro"), AutoSize = true, Font = Theme.Font(10), Margin = new Padding(0, 6, 6, 6) };
     readonly ComboBox language = Theme.Combo();
+    readonly Label languageNote = Theme.Label(T("En portugués, los nombres del juego salen en inglés: PKHeX no los tiene en ese idioma."), 9, color: Theme.Muted);
     readonly Button apply = Theme.Button(T("Aplicar"), true);
 
     SettingsDialog(AppSettings current)
     {
         Text = T("Configuración"); Font = Theme.Font(); BackColor = Theme.Background; ForeColor = Theme.Ink;
-        ClientSize = new Size(400, 200); FormBorderStyle = FormBorderStyle.FixedDialog; StartPosition = FormStartPosition.CenterParent;
+        ClientSize = new Size(400, 248); FormBorderStyle = FormBorderStyle.FixedDialog; StartPosition = FormStartPosition.CenterParent;
         MinimizeBox = MaximizeBox = false; ShowInTaskbar = false; AutoScaleMode = AutoScaleMode.Dpi;
-        var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 3, Padding = new Padding(16, 14, 16, 10) };
+        var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 4, Padding = new Padding(16, 14, 16, 10) };
         layout.ColumnStyles.Add(new(SizeType.AutoSize)); layout.ColumnStyles.Add(new(SizeType.Percent, 100));
-        layout.RowStyles.Add(new(SizeType.Absolute, 48)); layout.RowStyles.Add(new(SizeType.Absolute, 48)); layout.RowStyles.Add(new(SizeType.Percent, 100));
+        layout.RowStyles.Add(new(SizeType.Absolute, 48)); layout.RowStyles.Add(new(SizeType.Absolute, 48)); layout.RowStyles.Add(new(SizeType.Absolute, 48)); layout.RowStyles.Add(new(SizeType.Percent, 100));
         var themes = new FlowLayoutPanel { Dock = DockStyle.Fill, WrapContents = false, Margin = Padding.Empty };
         themes.Controls.Add(light); themes.Controls.Add(dark);
         layout.Controls.Add(Title(T("Tema")), 0, 0); layout.Controls.Add(themes, 1, 0);
         language.Items.AddRange(Languages.Cast<object>().ToArray());
+        language.SelectedIndexChanged += (_, _) => languageNote.Visible = ((Strings.Language)language.SelectedItem!).EnglishNames;
         language.SelectedItem = Languages.FirstOrDefault(l => l.Code == current.Language) ?? Languages[0];
         layout.Controls.Add(Title(T("Idioma")), 0, 1); layout.Controls.Add(language, 1, 1);
+        languageNote.TextAlign = ContentAlignment.TopLeft;
+        layout.Controls.Add(languageNote, 0, 2); layout.SetColumnSpan(languageNote, 2);
         (current.Dark ? dark : light).Checked = true;
         var buttons = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.RightToLeft, WrapContents = false };
         var cancel = Theme.Button(T("Cancelar"));
         apply.DialogResult = DialogResult.OK; cancel.DialogResult = DialogResult.Cancel;
         buttons.Controls.Add(apply); buttons.Controls.Add(cancel);
-        layout.Controls.Add(buttons, 0, 2); layout.SetColumnSpan(buttons, 2);
+        layout.Controls.Add(buttons, 0, 3); layout.SetColumnSpan(buttons, 2);
         Controls.Add(layout); AcceptButton = apply; CancelButton = cancel;
     }
 
@@ -87,6 +91,22 @@ sealed class SettingsDialog : Form
         language.SelectedItem = Languages.First(l => l.Code == chosen.Language);
         (chosen.Dark ? dark : light).Checked = true;
         apply.PerformClick();
+    }
+
+    /// <summary>Every language can be chosen, and every text fits, whichever language is on screen.</summary>
+    internal static void RunChecks(AppSettings current, Action<bool, string> check)
+    {
+        using var dialog = new SettingsDialog(current) { ShowInTaskbar = false, StartPosition = FormStartPosition.Manual, Location = new Point(-16000, -16000) };
+        dialog.Show();
+        check(dialog.language.Items.Count == Languages.Length, "Every language is in the selector");
+        foreach (var offered in Languages)
+        {
+            dialog.language.SelectedItem = offered; dialog.PerformLayout(); Application.DoEvents();
+            check(dialog.languageNote.Visible == offered.EnglishNames, $"The selector says which names stay in English ({offered.Code})");
+            string cut = EditorView.Clipped(dialog);
+            check(cut.Length == 0, $"Every text fits in the settings ({offered.Code}) {cut}");
+        }
+        dialog.Close();
     }
 
     /// <summary>For the screenshots, which can't wait on a dialog.</summary>

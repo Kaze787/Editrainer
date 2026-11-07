@@ -6,7 +6,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <AssemblyName>Editrainer</AssemblyName>
-    <Version>2.2.0</Version>
+    <Version>2.3.0</Version>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon Condition="Exists('..\Assets\app.ico')">..\Assets\app.ico</ApplicationIcon>
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
@@ -15,5 +15,6 @@
   </PropertyGroup>
   <ItemGroup>
     <Reference Include="PKHeX.Core"><HintPath>../lib/PKHeX.Core.dll</HintPath></Reference>
+    <Reference Include="PKHeX.Core.AutoMod"><HintPath>../lib/PKHeX.Core.AutoMod.dll</HintPath></Reference>
   </ItemGroup>
 </Project>

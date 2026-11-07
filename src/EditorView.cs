@@ -9,7 +9,7 @@ namespace Editrainer;
 /// <summary>Everything inside the window. Texts and colours are set while it is built, so new settings mean a new view.</summary>
 public sealed partial class EditorView : UserControl
 {
-    const string AppVersion = "2.2";
+    const string AppVersion = "2.3";
     const int SidebarWidth = 340, TeamTitleRow = 2, TeamTitleHeight = 26, TeamGridRow = 3, TeamGridHeight = 72, HeroHeight = 172, BagTab = 2, DetailsTab = 3;
 
     /// <summary>What the view that replaces this one needs to carry on where it left off.</summary>
@@ -44,7 +44,7 @@ public sealed partial class EditorView : UserControl
     readonly Label[] statLabels = new Label[6];
     readonly Button maxIV = Theme.Button(T("{0} a {1}", T("IV"), 31));
     readonly PictureBox portrait = new() { Dock = DockStyle.Fill, SizeMode = PictureBoxSizeMode.Zoom, Margin = new Padding(8) };
-    readonly Label natureEffect = Theme.Label("", 10, true, Theme.Accent);
+    readonly Label natureEffect = Theme.Label("", 9, true, Theme.Accent);
     readonly Label abilityLabel = Theme.Label(T("Habilidad"), 10, true), abilityNote = Theme.Label("", 9, color: Theme.Muted);
     readonly Label evTotal = Theme.Label("EV: 0 / 510", 9, true);
     readonly Label buildHint = Theme.Label(T("Elige una evolución y pulsa Optimizar Pokémon."), 9, color: Theme.Muted);
@@ -70,6 +70,8 @@ public sealed partial class EditorView : UserControl
     readonly ContextMenuStrip toolsMenu = new() { Font = Theme.Font() };
     readonly Button toolsButton = Theme.Button(T("Herramientas"));
     ToolStripItem? zaTool;
+    ToolStripMenuItem? toolGroup;
+    readonly List<ToolStripMenuItem> toolGroups = [];
     readonly ResourcesPanel resources = new();
     readonly EquipmentPanel equipment = new();
     TableLayoutPanel? detailsLayout, heroPanel;
@@ -119,16 +121,16 @@ public sealed partial class EditorView : UserControl
         root.RowStyles.Add(new(SizeType.Absolute, 58)); root.RowStyles.Add(new(SizeType.Absolute, 32));
         root.RowStyles.Add(new(SizeType.Percent, 100)); root.RowStyles.Add(new(SizeType.Absolute, 78));
         Controls.Add(root);
-        var header = Table(3, 1); header.ColumnStyles.Add(new(SizeType.Absolute, 54)); header.ColumnStyles.Add(new(SizeType.Percent, 100)); header.ColumnStyles.Add(new(SizeType.Absolute, 500));
+        var header = Table(3, 1); header.ColumnStyles.Add(new(SizeType.Absolute, 54)); header.ColumnStyles.Add(new(SizeType.Percent, 100)); header.ColumnStyles.Add(new(SizeType.AutoSize));
         settingsButton.Size = new Size(44, 44); settingsButton.Anchor = AnchorStyles.Top | AnchorStyles.Left; settingsButton.Margin = new Padding(0, 7, 10, 0);
         settingsButton.AccessibleName = T("Configuración");
         settingsButton.Click += (_, _) => SettingsRequested?.Invoke(); tips.SetToolTip(settingsButton, T("Configuración"));
         header.Controls.Add(settingsButton, 0, 0);
         var brandPanel = Table(1, 2); brandPanel.RowStyles.Add(new(SizeType.Percent, 68)); brandPanel.RowStyles.Add(new(SizeType.Percent, 32));
-        brandPanel.Controls.Add(brand, 0, 0);
+        brandPanel.Controls.Add(brand, 0, 0); brandPanel.SizeChanged += (_, _) => FitBrand();
         brandPanel.Controls.Add(Theme.Label(T("PREPARA TU PRÓXIMO COMBATE"), 8, true, Theme.Accent), 0, 1);
         header.Controls.Add(brandPanel, 1, 0);
-        var fileActions = Flow(); fileActions.FlowDirection = FlowDirection.RightToLeft;
+        var fileActions = Flow(); fileActions.FlowDirection = FlowDirection.RightToLeft; fileActions.AutoSize = true; fileActions.AutoSizeMode = AutoSizeMode.GrowAndShrink;
         var open = Theme.Button(T("Abrir partida…")); open.Click += (_, _) => OpenDialog();
         var find = Theme.Button(T("Buscar partidas")); find.Click += async (_, _) => await FindSaves();
         fileActions.Controls.Add(open); fileActions.Controls.Add(find);
@@ -177,6 +179,7 @@ public sealed partial class EditorView : UserControl
         BuildStatsTab(); BuildMovesTab();
         var bagPage = new TabPage(T("Dinero y objetos")) { BackColor = Theme.Surface }; bagPage.Controls.Add(resources); tabs.TabPages.Add(bagPage);
         BuildDetailsTab();
+        BuildMoreDataTab();
         editor.Controls.Add(tabs); editor.Padding = new Padding(16, 6, 16, 0);
         right.Controls.Add(editor, 0, 1); validation.Padding = new Padding(16, 0, 12, 0); validation.AutoEllipsis = true;
         right.Controls.Add(validation, 0, 2); body.Controls.Add(right, 1, 0); root.Controls.Add(body, 0, 2);
@@ -208,20 +211,38 @@ public sealed partial class EditorView : UserControl
         tips.SetToolTip(optimizeAll, T("IV de 31, naturaleza Firme o Modesta y EV según la evolución final. Revisa los cambios antes de guardar."));
     }
 
-    // Each tool that works on the whole save adds its entry here.
+    // Each tool that works on the whole save adds its entry here, under the heading it belongs to.
     void BuildTools()
     {
+        ToolGroup(T("Partida"));
         AddTool(T("Auditoría de legalidad"), () => OpenTool(new AuditWindow(document!, ShowPokemon)));
         AddTool(T("Informe de cajas"), () => OpenTool(new BoxReportWindow(document!, ShowPokemon)));
         // A save that no longer opens is the best reason to want a backup.
         AddTool(T("Administrar respaldos"), () => OpenTool(new BackupWindow(BackupRoot, document, AfterRestore)), false);
         AddTool(T("Comparar partidas"), () => OpenTool(new CompareWindow(document?.FilePath)), false);
-        AddTool(T("Herramientas de Z-A…"), OpenZaTools);
-        zaTool = toolsMenu.Items[^1];
         AddTool(T("Entrenador…"), () => OpenSaveTool(document!.Trainer.IsSupported, T("Esta partida no guarda un entrenador que se pueda editar aquí."), () => new TrainerDialog(document)));
         AddTool(T("Pokédex…"), () => OpenSaveTool(document!.Pokedex.CanView, T("Esta partida no tiene Pokédex."), () => new PokedexDialog(document)));
+        ToolGroup(T("Pokémon"));
+        BuildBatchTools();
+        BuildGeneratorTools();
+        ToolGroup(T("Cajas"));
         BuildBoxTools();
+        BuildBoxNameTool();
+        ToolGroup(T("Juego"));
+        zaTool = AddTool(T("Herramientas de Z-A…"), OpenZaTools);
+        BuildExtraTools();
     }
+
+    // A heading of the Tools menu. What follows goes under it, and it hides when nothing under it applies to the open game.
+    void ToolGroup(string title)
+    {
+        toolGroup = new ToolStripMenuItem(title);
+        toolGroups.Add(toolGroup); toolsMenu.Items.Add(toolGroup);
+    }
+
+    /// <summary>Every tool, whichever heading it is under.</summary>
+    IEnumerable<ToolStripItem> AllTools() => toolsMenu.Items.Cast<ToolStripItem>()
+        .SelectMany(item => item is ToolStripMenuItem { HasDropDownItems: true } group ? group.DropDownItems.Cast<ToolStripItem>() : [item]);
 
     // Tools only prepare changes: they are saved with everything else.
     void OpenSaveTool(bool available, string unavailable, Func<Form> open)
@@ -248,7 +269,7 @@ public sealed partial class EditorView : UserControl
     }
 
     // A tool that can't open must not take the editor, and its pending edits, down with it.
-    void AddTool(string text, Action run, bool needsSave = true) => toolsMenu.Items.Add(text, null, (_, _) => {
+    ToolStripItem AddTool(string text, Action run, bool needsSave = true) => (toolGroup?.DropDownItems ?? toolsMenu.Items).Add(text, null, (_, _) => {
         if (document == null && needsSave) { status.Text = T("Abre una partida primero."); return; }
         try { run(); }
         catch (Exception ex) { Warn(ex.Message); }
@@ -431,6 +452,7 @@ public sealed partial class EditorView : UserControl
             }
             optimizeAll.Visible = !showBag;
             if (tabs.SelectedIndex == 0 && document != null && current != null) equipment.Bind(document, current, true);
+            if (tabs.SelectedIndex == MoreDataTab && current != null) BindMoreData(current);
             ShowLegality();
         };
         search.TextChanged += (_, _) => RefreshList();
@@ -538,6 +560,7 @@ public sealed partial class EditorView : UserControl
         if (previousTarget != null && target.Items.Cast<EvolutionTarget>().FirstOrDefault(t => t.Species == previousTarget.Species && t.Form == previousTarget.Form) is { } old)
             target.SelectedItem = old;
         if (document != null) equipment.Bind(document, e);
+        if (tabs.SelectedIndex == MoreDataTab) BindMoreData(e);
         binding = false; UpdateBuildHint(); UpdateState();
     }
 
@@ -566,9 +589,11 @@ public sealed partial class EditorView : UserControl
     {
         bool loaded = document != null;
         if (zaTool != null) zaTool.Available = document?.Rules.IsZA == true;
-        toolsButton.Visible = toolsMenu.Items.Cast<ToolStripItem>().Any(item => item.Available);
+        ShowExtraTools();
+        foreach (var group in toolGroups) group.Available = group.DropDownItems.Cast<ToolStripItem>().Any(item => item.Available);
+        toolsButton.Visible = AllTools().Any(item => item.Available);
         shiny.Enabled = loaded && current != null;
-        editor.Enabled = loaded; tabs.TabPages[0].Enabled = tabs.TabPages[1].Enabled = tabs.TabPages[DetailsTab].Enabled = loaded && current != null;
+        editor.Enabled = loaded; tabs.TabPages[0].Enabled = tabs.TabPages[1].Enabled = tabs.TabPages[DetailsTab].Enabled = tabs.TabPages[MoreDataTab].Enabled = loaded && current != null;
         equipment.Enabled = loaded && current != null;
         restoreSelected.Enabled = current?.Dirty == true;
         optimizeAll.Enabled = loaded && document!.Pokemon.Count != 0;
@@ -683,7 +708,7 @@ public sealed partial class EditorView : UserControl
     void ApplyRules(GameRules rules)
     {
         binding = true;
-        brand.Text = BrandName;
+        brand.Text = BrandName; FitBrand();
         ivHeading.Text = $"{rules.IVName} · 0–{rules.MaxIV}"; evHeading.Text = $"{rules.EVName} · 0–{rules.MaxEV}";
         maxIV.Text = T("{0} a {1}", rules.IVName, rules.MaxIV);
         for (int i = 0; i < 6; i++) {
@@ -697,6 +722,7 @@ public sealed partial class EditorView : UserControl
         teamTitle.Visible = teamGrid.Visible = hasTeam;
         sidebar.RowStyles[TeamTitleRow].Height = hasTeam ? TeamTitleHeight : 0;
         sidebar.RowStyles[TeamGridRow].Height = hasTeam ? TeamGridHeight : 0;
+        ApplyMoreRules(rules);
         binding = false;
     }
 
@@ -811,6 +837,7 @@ public sealed partial class EditorView : UserControl
                 Check(cut == null, $"Nothing is cut off on the right of {dialog.Text} ({cut?.GetType().Name} {cut?.Text})");
             }
         }
+        CheckExtraLayouts(Check, sizeLabel);
     }
 
     public void RunInteractionChecks(string reportPath)
@@ -932,15 +959,18 @@ public sealed partial class EditorView : UserControl
         PasteShowdown("Pikachu\nLevel: 5");
         Check(status.Text.Contains("Pikachu") && document.DirtyCount == 0, "A set for another species is refused");
         RunBoxChecks(Check, Path.GetDirectoryName(Path.GetFullPath(reportPath))!);
+        CheckGenerators(Check);
         Choose(4); tabs.SelectedIndex = BagTab; resources.RunInteractionChecks(Check);
         Check(!save.Enabled && !document.HasChanges && heroPanel?.Visible == false, "Resource undo clears global pending changes and the bag tab hides the Pokémon header");
         Choose(4); tabs.SelectedIndex = 0; equipment.RunInteractionChecks(Check); resources.RefreshDraft(); UpdateState();
         Check(!document.HasChanges && !save.Enabled, "Equipment and friendship test edits can be completely undone");
         CheckZaTools(Check);
         CheckSaveTools(Check, ToolScratch(reportPath));
-        Check(toolsMenu.Items.Cast<ToolStripItem>().Any(i => i.Text == T("Entrenador…")) && toolsMenu.Items.Cast<ToolStripItem>().Any(i => i.Text == T("Pokédex…")), "The Tools menu offers the trainer and the Pokédex");
+        CheckMoreData(Check);
+        Check(AllTools().Any(i => i.Text == T("Entrenador…")) && AllTools().Any(i => i.Text == T("Pokédex…")), "The Tools menu offers the trainer and the Pokédex");
         using (var dialog = OffScreen(new TrainerDialog(document))) dialog.RunInteractionChecks(document, Check);
         using (var dialog = OffScreen(new PokedexDialog(document))) dialog.RunInteractionChecks(document, Check);
+        CheckExtraTools(Check);
         document.Trainer.Edit = document.Trainer.Original with { Name = "Ana" }; document.Pokedex.Set(document.Pokedex.Entries[0], true, true);
         UpdateState(); ShowTrainer();
         Check(save.Enabled && Text.Contains($"{document.ToolChangeCount} ") && document.ToolChangeCount == 2 && trainer.Text.StartsWith("Ana"), "Tool changes enable Save and count in the window title");
@@ -951,6 +981,7 @@ public sealed partial class EditorView : UserControl
         document.Trainer.Reset(); document.Pokedex.Reset();
         UpdateState(); ShowTrainer();
         Check(!document.HasChanges && !save.Enabled, "Undoing the tools leaves nothing pending");
+        CheckBatch(Check);
         CheckLayout(Check, "normal window");
         Window.Size = Window.MinimumSize; CheckLayout(Check, "minimum window");
         var fonts = Descendants(tabs).Select(c => (Control: c, Font: c.Font)).ToList();
@@ -979,7 +1010,7 @@ public sealed partial class EditorView : UserControl
 
     TWindow OpenFromMenu<TWindow>(string text) where TWindow : ToolWindow
     {
-        toolsMenu.Items.Cast<ToolStripItem>().First(i => i.Text == text).PerformClick();
+        AllTools().First(i => i.Text == text).PerformClick();
         var opened = (TWindow)tool!;
         WaitFor(() => !opened.Working, text);
         return opened;
@@ -990,7 +1021,7 @@ public sealed partial class EditorView : UserControl
     {
         string opened = document!.FilePath;
         scratchBackups = Path.Combine(scratch, "Backups");
-        Check(toolsMenu.Items.Count >= 4, "The tools menu offers the whole-save tools");
+        Check(AllTools().Count() >= 4 && toolGroups.Count == 4, "The tools menu offers the whole-save tools under four headings");
         CheckToolPlacement(Check);
 
         var illegal = document.Pokemon[4];
@@ -1014,7 +1045,7 @@ public sealed partial class EditorView : UserControl
         audit.Close();
         Check(tool == null, "Closing a tool lets go of it");
 
-        toolsMenu.Items.Cast<ToolStripItem>().First(i => i.Text == T("Auditoría de legalidad")).PerformClick();
+        AllTools().First(i => i.Text == T("Auditoría de legalidad")).PerformClick();
         var stopped = tool!; stopped.Close();
         WaitFor(() => stopped.IsDisposed, "closing a tool that was working");
         for (int i = 0; i < 50; i++) { Application.DoEvents(); Thread.Sleep(2); }
@@ -1084,7 +1115,7 @@ public sealed partial class EditorView : UserControl
         var noSave = OpenFromMenu<BackupWindow>(T("Administrar respaldos"));
         Check(noSave.RowCount == 3, "Backups can be reached with no save open, in case it no longer opens");
         noSave.Close();
-        toolsMenu.Items.Cast<ToolStripItem>().First(i => i.Text == T("Informe de cajas")).PerformClick();
+        AllTools().First(i => i.Text == T("Informe de cajas")).PerformClick();
         Check(tool == null && status.Text == T("Abre una partida primero."), "A tool that needs a save says so");
         document = keep;
         LoadFile(opened); scratchBackups = null;
@@ -1143,10 +1174,37 @@ public sealed partial class EditorView : UserControl
         compare.PressCompare(copy, document.FilePath); WaitFor(() => !compare.Working, "the comparison");
         Check(compare.RowCount != 0, "The comparison shows something to lay out");
         Inspect(compare, "compare");
-        compare.Close(); scratchBackups = null;
+        compare.Close();
+        InspectGenerators(Inspect);
+        scratchBackups = null;
     }
 
-    internal void OpenToolForChecks() => toolsMenu.Items[0].PerformClick();
+    // A long game title in a long language would wrap, so the name steps down until it fits its line.
+    void FitBrand()
+    {
+        int room = brand.Parent!.ClientSize.Width - brand.Margin.Horizontal;
+        float size = 23;
+        for (; size > 12; size--)
+        {
+            using var font = Theme.Font(size, true);
+            if (TextRenderer.MeasureText(brand.Text, font).Width <= room) break;
+        }
+        if (brand.Font.Size != size) brand.Font = Theme.Font(size, true);
+    }
+
+    // Any game's title has to fit, not just the one of the save that's open.
+    void CheckBrand(Action<bool, string> Check)
+    {
+        foreach (var title in Enum.GetValues<GameVersion>().Select(GameRules.GameTitle).Distinct().Where(t => t.Length > 0))
+        {
+            brand.Text = "Editrainer " + T(title); FitBrand();
+            string cut = Clipped(brand.Parent!);
+            Check(cut.Length == 0, $"The title fits at any window size ({title}) {cut}");
+        }
+        brand.Text = BrandName; FitBrand();
+    }
+
+    internal void OpenToolForChecks() => AllTools().First().PerformClick();
 
     void CheckLayout(Action<bool, string> Check, string sizeLabel)
     {
@@ -1190,7 +1248,9 @@ public sealed partial class EditorView : UserControl
             if (page == 2) Check(resources.VisibleItemRows >= 3, $"The item list shows several rows ({sizeLabel}: {resources.VisibleItemRows})");
         }
         tabs.SelectedIndex = 0;
+        CheckMoreLayout(Check, sizeLabel);
         CheckTools(Check, sizeLabel);
+        CheckBatchLayout(Check, sizeLabel);
     }
 
     static IEnumerable<Control> Descendants(Control parent) => parent.Controls.Cast<Control>().SelectMany(c => new[] { c }.Concat(Descendants(c)));
@@ -1205,14 +1265,18 @@ public sealed partial class EditorView : UserControl
     /// <summary>The same rules in any language or theme, with nothing to do with what the save contains.</summary>
     public void RunLayoutChecks(string reportPath, AppSettings expected)
     {
+        extraPictures = reportPath;
         var checks = new List<string>();
         void Check(bool ok, string description) { if (!ok) throw new Exception(description); checks.Add(description); }
         Check(document != null && Strings.Current.Code == expected.Language && Theme.IsDark == expected.Dark, "The window opens in the chosen language and theme");
+        SettingsDialog.RunChecks(expected, Check);
         CheckZaTools(Check);
         CheckLayout(Check, "normal window");
         Window.Size = Window.MinimumSize; CheckLayout(Check, "minimum window");
+        CheckBrand(Check);
         CheckToolLayouts(Check, reportPath);
         CheckBoxMessages(Check);
+        CheckBatchMessages(Check, reportPath);
         File.WriteAllText(reportPath, JsonSerializer.Serialize(new { passed = checks.Count, checks }, new JsonSerializerOptions { WriteIndented = true }));
     }
 
@@ -1220,7 +1284,7 @@ public sealed partial class EditorView : UserControl
     void CheckZaTools(Action<bool, string> Check)
     {
         bool isZA = document!.Rules.IsZA;
-        Check(zaTool?.Available == isZA && toolsButton.Visible == toolsMenu.Items.Cast<ToolStripItem>().Any(item => item.Available), "The Z-A tools are in the menu only with a Z-A save open");
+        Check(zaTool?.Available == isZA && toolsButton.Visible == AllTools().Any(item => item.Available), "The Z-A tools are in the menu only with a Z-A save open");
         if (!isZA) return;
         using var dialog = new ZaToolsDialog(document) { StartPosition = FormStartPosition.Manual, Location = new Point(-16000, -16000) };
         dialog.Show(Window);

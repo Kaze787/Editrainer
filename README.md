@@ -32,7 +32,7 @@ The images are not in the ZIP because they belong to their owners, so each perso
 
 Double-click **`Editrainer.exe`**. It opens your most recent save by itself.
 
-It opens in your Windows language if that's English, Spanish, Chinese or French, and in English otherwise. To change it, click the **⚙** button at the top left.
+It opens in your Windows language if it's one of the nine it offers, and in English otherwise. To change it, click the **⚙** button at the top left.
 
 > **If Windows shows "Windows protected your PC"** in step 4 or 5, click **More info** and then **Run anyway**. Windows shows this message for apps that aren't digitally signed.
 
@@ -67,6 +67,7 @@ Always open the game's **save file**, not an emulator save state (`.ss0`, `.ml1`
 ### Testing status
 
 - **Z-A** has been tested with real saves.
+- The **More data** tab has been tested on real Z-A saves and on generated saves, with every field written and read back in all 38 games. The window itself was tried on Z-A and on generated saves from Gen 1 to Gen 7 and Brilliant Diamond. For Sword, Shield, Legends: Arceus, Scarlet, Violet and Let's Go, whose generated saves only open inside the tests, every row was checked for fit but not used by hand.
 - The other **37 games** have been tested from start to finish with generated saves that use each format's real structure (`tests --all-games`): open, edit, save with a backup, reopen and compare. **They have not been tested with real saves**: before trusting a game, make a copy and check it in the emulator.
 - **Colosseum and XD** could not be tested, because their encrypted GameCube container can't be generated from scratch. PKHeX does the reading and writing, but use them with a copy.
 - In **Diamond, Pearl and Platinum**, the move list leaves out special tutors because of a bug in PKHeX 26.10.18. Moves the Pokémon already knows are kept.
@@ -88,13 +89,14 @@ Changes stay in memory until you save. **Undo this Pokémon** discards that Pok�
 The **⚙** button at the top left opens the settings:
 
 - **Theme**: light or dark.
-- **Language**: Spanish, English, Simplified Chinese or French. It changes the app's text and the names of Pokémon, moves, abilities, natures, types and items.
+- **Language**: Spanish, English, Simplified Chinese, French, German, Italian, Japanese, Korean or Brazilian Portuguese. It changes the app's text and the names of Pokémon, moves, abilities, natures, types and items.
 
-When you click **Apply**, the change happens right away, without closing the window, and keeps the open save, unsaved changes, the selected Pokémon, the box and the tab. Your choice is stored in `settings.json`, next to the app. Until you make one, the app uses your Windows language, or English if it isn't one of these four.
+When you click **Apply**, the change happens right away, without closing the window, and keeps the open save, unsaved changes, the selected Pokémon, the box and the tab. Your choice is stored in `settings.json`, next to the app. Until you make one, the app uses your Windows language, or English if it isn't one of these nine. Any Portuguese version of Windows opens in Brazilian Portuguese.
 
 - The language only changes what you see. What gets written to the save is identical in every language, and nicknames and trainer names stay as they are in the save.
 - Windows draws the buttons on message boxes and the open and save file dialogs, so they appear in your system's language.
-- Only languages with complete game names are offered. PKHeX doesn't have them in Portuguese, Russian, Hindi or Arabic, which would leave the app half translated.
+- PKHeX has no game names in Portuguese, so in Brazilian Portuguese the app's own text is translated but the names of Pokémon, moves, abilities, natures, types and items stay in English, and so do legality reports. The language selector says so too.
+- Russian, Hindi and Arabic aren't offered, because PKHeX has no game names in those languages either.
 
 ## Forms and colors
 
@@ -145,6 +147,40 @@ Names must fit the game's alphabet and length, and the app tells you if they don
 
 **Copy Showdown** copies the Pokémon as a Showdown set. **Paste Showdown** applies a copied set to the selected Pokémon, as long as it's the same species: level, nickname, nature, IVs, EVs, ability, shiny status, the moves it can learn in this game, and the held item if it's in your bag. Whatever it can't use is listed at the bottom of the window, and the form doesn't change. As on Showdown, a set with no `Level:` line means level 100.
 
+## More data
+
+Pick a Pokémon and open **More data**. The tab shows only what the open game stores and uses, so most games show part of this list:
+
+| Data | Games |
+| --- | --- |
+| Game of origin, language | Gen 3 onwards |
+| Met location, met level, trainer gender | Crystal and Gen 3 onwards |
+| Met date | Gen 4 onwards |
+| Egg location and date | Gen 4 onwards, on a Pokémon that was an egg. Its met location and date then read as hatch location and date. |
+| PP Ups for each move | Every game except both Legends |
+| Relearn moves | Gen 6 onwards |
+| Hyper Training | Gen 7 onwards |
+| GVs | Legends: Arceus |
+| Contest stats | Gen 3 to 6, Brilliant Diamond and Shining Pearl |
+| Pokérus | Gen 2 onwards, except Let's Go, Scarlet, Violet and Z-A, which don't have it |
+| Tera Type | Scarlet and Violet |
+| Dynamax Level, Gigantamax | Sword and Shield |
+| Height and weight | Let's Go and Gen 8 onwards |
+| Scale | Legends: Arceus, Scarlet, Violet and Z-A |
+| Alpha | Legends: Arceus and Z-A |
+| Markings | Gen 3 onwards. From Gen 7 each one can be blue or pink. |
+| Ribbons | Gen 3 onwards, except Let's Go |
+| Marks | Gen 8 onwards |
+
+- **Pending until saved**: these are ordinary edits. They count as pending changes, **Undo this Pokémon** brings them back, and the save is checked after writing like everything else.
+- **Refused with a reason**: the line under the editor explains what the game can't store, such as February 30, a place that isn't in the game of origin, a ribbon from another game or more Pokérus days than the strain lasts. Save stays off until it's fixed.
+- **Changing the game** updates the list of places. A place the new game doesn't have gives way to its first one, and comes back with the original game.
+- **Changing the language** also changes the name of a Pokémon with no nickname. In Gen 3 the language decides the alphabet, so a name that doesn't fit the new one is refused.
+- **PP Ups** go with the move: a new move starts without them, like in the game.
+- **Eggs** keep this data only once they hatch, so the tab is locked on them.
+
+**Legality** on the **Details** tab follows all of this. Much of it can make a Pokémon illegal without stopping the game from storing it, so check that verdict when you change where a Pokémon comes from.
+
 ## Money and items
 
 The **Money and items** tab changes the save's money and prepares changes to the bag. The maximum depends on the game (9,999,999 in Z-A, 999,999 on Game Boy and GBA). **Maximum** fills in that amount without saving it yet.
@@ -161,12 +197,29 @@ Rows keep their room for fields and labels. If you shrink the window and the con
 
 ## Whole-save tools
 
-The **Tools** button, next to **Find saves**, gathers everything that works on the whole save: the four tools below, the Legends: Z-A tools, the trainer and Pokédex editors, and the box sorting and undo described further down. These four open their own window beside the editor, so you can keep working while it's open. Only restoring a backup writes anything.
+The **Tools** button, next to **Find saves**, gathers everything that works on the whole save under four headings: **Save** (the four tools below, plus the trainer and Pokédex editors), **Pokémon** (**Apply to many** and the generators of legal Pokémon), **Boxes** (sorting, undo and box names) and **Game** (the Legends: Z-A tools and the extras each game keeps). The four tools below open their own window beside the editor, so you can keep working while it's open. Only restoring a backup writes anything.
 
 - **Legality audit** checks every Pokémon as it would be saved, pending changes included, and lists the ones that aren't legal with the reasons. Click one to see it in the editor, and use **Check again** after fixing it.
 - **Box report** shows every Pokémon in one table: place, species, nickname, level, nature, ability, IVs, EVs, moves, held item, shiny and legality. Click a column to sort by it. **Export CSV** saves the table for a spreadsheet, using your system's list separator. IVs and EVs follow the order HP / Attack / Defense / Speed / Sp. Atk / Sp. Def.
 - **Manage backups** lists the `Backups` folder with the date, the game and what changed. **Restore** asks first, keeps a copy of the current file, puts the backup back and checks the result byte by byte. It refuses while that console's emulator is running. It also works with no save open, in case yours no longer opens.
 - **Compare saves** takes two saves of the same game and lists which Pokémon, money and items differ. It goes place by place, so a Pokémon that moved shows up in both places, and it reads the files on disk, so pending changes don't count.
+
+## Apply to many
+
+**Tools → Apply to many…** prepares one change on many Pokémon at once. Choose who it reaches (the team, the open box, all boxes or everyone), tick the changes and press **Apply**:
+
+- IVs to the maximum or to a value, and EVs to zero or to a spread.
+- Level, nature, shiny on or off, maximum friendship and Poké Ball.
+- Remove the held item, which goes back to the bag, and clear the nickname, which brings back the species name.
+- Original trainer.
+
+Each Pokémon gets its own pending change, with its dot, exactly as if you had edited it by hand. Nothing is written until **Save game**, which checks each one like any other edit.
+
+Whatever a Pokémon can't take is skipped, and the rest of its changes still apply. The summary says how many changed, and the list shows who was skipped and why. For example, an egg keeps its level, names, ball and friendship (which is its hatch counter), and a Pokémon whose form depends on its item keeps that item. On Game Boy, a value that would change a Pokémon's shininess or Unown letter is skipped too.
+
+**Undo the last batch**, in that window and in **Tools**, takes the batches back one at a time. It only reverses what the batch did: anything you edited by hand afterwards stays, on that Pokémon or on any other. If an item the batch removed is no longer in the bag, the undo is refused and the app tells you why.
+
+This was tested on all 38 games with generated saves and on real Z-A saves, but not by loading the results in each game, so try it on a copy first.
 
 ## Legends: Z-A tools
 
@@ -201,6 +254,22 @@ Story progress, event flags, Mable's research, your position and your trainer pi
 - In **Legends: Z-A** without the DLC the list is the Lumiose Pokédex.
 - Colosseum, XD and box-only saves don't have a Pokédex.
 
+## Game extras
+
+**Tools** also lists small windows for what only some games keep. A game that doesn't keep something doesn't show its entry. What you change stays pending like any other edit: it's applied with **Save game**, it counts as a pending change when you close the app, you can undo it, it's listed in the automatic backup, and it's read back from the written save before the old file is replaced.
+
+- **Box names:** rename boxes from Gen 2 to Legends: Z-A. Up to 8 characters until Gen 5, 14 in Gen 6 and 7, and 16 from Gen 8, always in the game's alphabet. The box list shows the new name straight away. Gen 1 fixes its names and Let's Go has none.
+- **Daycare:** see who is there and whether an egg is waiting, in every game with a daycare except Colosseum and XD. **Take to a box** sends a Pokémon to the first free place from the open box on, with its held item. It counts as a box change, so box undo brings it back. It leaves as it went in, without the experience it gained there. If its partner stays, the partner moves to the first place, which is where the games look for it.
+  - A Pokémon can't leave while an egg is waiting, because the game reads its parents to make it, and it can't leave while either of them holds mail.
+  - Sword, Shield and Let's Go are view only: PKHeX can't empty their places, and it can't tell whether an egg is waiting in Sword and Shield.
+- **Received gifts:** in Sword and Shield, Brilliant Diamond and Shining Pearl, Legends: Arceus, and Scarlet and Violet. Clearing a tick removes the gift from the save's list so it can be received again, and the list closes up behind it. Brilliant Diamond and Shining Pearl also clear the gift's received mark, which PKHeX documents. The other games keep this list in a block PKHeX doesn't describe. The layout used here comes from PKHeX-Avalonia, and whether removing the entry is enough to receive a gift again hasn't been tested in those games. Legends: Z-A isn't offered, because PKHeX keeps that block private and no layout is known.
+- **Hall of Fame:** view only. Gen 1, Gen 3 and Gen 6 show whole teams, Gen 7 only keeps the species of the first and latest visits, and Sword and Shield only keep the day of the first one. PKHeX can't read it in the other games.
+- **Raids:** turn the dens of Sword and Shield and the crystals of Scarlet and Violet on or off and change their seeds, plus the stars in Sword and Shield. The games make new raids when the day changes, so this lasts until then. The Watchtower den is left alone, as PKHeX does.
+- **Pokéathlon:** the points of HeartGold and SoulSilver.
+- **Secret bases:** view only, in Ruby, Sapphire, Emerald, Omega Ruby and Alpha Sapphire. Bases show their owner and the place number the game uses.
+
+These tools were tested on all 38 games with generated saves, and box names byte by byte on real Z-A saves. None of the results has been loaded in a game, so try them on a copy first.
+
 ## Boxes
 
 Move your Pokémon around the way you would in the game. Like every other edit, nothing changes in your file until you press **Save game**, and each Pokémon with a pending change shows its dot.
@@ -225,12 +294,27 @@ Some things stay in place on purpose, and the app tells you why when you try:
 
 Every change is checked after writing: each place of the team and the boxes has to hold exactly what it should, and nothing else may differ. This was tested on all 38 games with generated saves and byte by byte on real Z-A saves, but not by loading the results in each game, so try it on a copy first.
 
+## Generating legal Pokémon
+
+Two entries in **Tools** make new Pokémon with the Auto-Legality Mod engine, offline. Each one passes PKHeX's legality check as it would be saved before it can be placed, and then arrives like a clone: pending until **Save game**, counted in the title, removed with the box undo and checked after saving.
+
+- **Generate from Showdown** takes a Showdown set, pasted or typed in English or in the language on screen, and puts a legal Pokémon in the first free place from the open box on. It is yours (your trainer name and ID) unless the encounter fixes them, as gifts and events do. A set no legal encounter can give is reported and nothing is placed. A held item comes from your bag: with none left the Pokémon arrives without it, or isn't placed at all if it needs that item to be legal.
+- **Living Pokédex** looks for one legal Pokémon of each species you lack, in the first form the game has for it, at level 100. It shows its progress, and **Stop** keeps what it has made. What it skipped comes first in the list, with the reason. Nothing changes until **Place in the boxes**, which fills the free places from the open box on, and a single undo takes them all back.
+
+Things to expect:
+
+- Some species can't be made in some games, because no legal encounter reaches them there. Mythicals are the usual case on Sword and Shield, Brilliant Diamond and Shining Pearl, and Scarlet and Violet, where many Pokémon only arrive through HOME, which the engine doesn't simulate. Those are skipped and listed.
+- Box Pokémon don't register in the Pokédex: use the Pokédex editor for that.
+- Colosseum and XD saves can't receive generated Pokémon, because they can't be rearranged.
+
+Generating was tested on all 38 games with generated saves, writing the file and reading the result back, and byte by byte on real Z-A saves. PKHeX calling a Pokémon legal is not the same as seeing it work in the game, and nothing here was loaded in one, so try it on a copy first.
+
 ## Backups
 
 Backups go in the `Backups` folder, inside the app's folder. The **Open backups** link opens it. Each save includes:
 
 - `main.original` (or `<name>.sav.original`): the full save from before the edit.
-- `cambios.json`: which Pokémon and values changed, along with the trainer and Pokédex changes.
+- `cambios.json`: which Pokémon and values changed, along with the trainer, Pokédex and game extras changes.
 - `destino.anterior`: an extra copy, if a file other than the one you opened was overwritten.
 
 To restore a backup, use **Tools > Manage backups**. To do it by hand, close the emulator, open the `.original` file and use **Save as** to store it under its original name in the emulator's save folder. To open `main.original`, choose the **All files** filter in the file selector.
@@ -253,10 +337,10 @@ With the .NET 10 SDK installed, this builds the app and creates `Editrainer-wind
 .\build.ps1
 ```
 
-The save tests are in `tests`. They run on an isolated copy and never write to the save they receive. `--za-tools <save> <folder>` runs each Z-A tool through a real write and reopen on a copy of a real Z-A save. `--all-games <folder>` tests every game with generated saves, including every form of each one, in each language. `--strings src` checks that all the app's text is translated. Visual checks can be run with `Editrainer.exe --preview <save> <capture.png> <app-folder> <index> <tab>`.
+The save tests are in `tests`. They run on an isolated copy and never write to the save they receive. `--za-tools <save> <folder>` runs each Z-A tool through a real write and reopen on a copy of a real Z-A save. `--all-games <folder>` tests every game with generated saves, including every form of each one, in each language. `--batch <folder>` runs only the batch changes, in every game. `--generate <folder>` runs only the legal Pokémon generators, and `--living-dex <folder>` measures how much of each game's Pokédex they reach. `--strings src` checks that all the app's text is translated. Visual checks can be run with `Editrainer.exe --preview <save> <capture.png> <app-folder> <index> <tab>`.
 
 ## License and credits
 
-Distributed under GPL-3.0-or-later: see `LICENSE`. Full credits are in `CREDITOS.md`.
+Distributed under GPL-3.0-or-later: see `LICENSE`. Full credits are in `CREDITOS.md`. Legal Pokémon are generated with the [Auto Legality Mod](https://github.com/santacrab2/PKHeX-Plugins) engine by architdate, santacrab2 and contributors, under the MIT license.
 
 Editrainer is an unofficial fan project, not affiliated with Nintendo, Creatures, GAME FREAK or The Pokémon Company. Pokémon and all related characters and images belong to their respective owners.

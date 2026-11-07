@@ -7,6 +7,11 @@ if (args[0] == "--all-games")
     AllGames.Run(args[1]);
     return;
 }
+if (args[0] == "--more-data")
+{
+    AllGames.RunMore(args[1]);
+    return;
+}
 if (args[0] == "--tools")
 {
     AllGames.RunTools(args[1]);
@@ -17,9 +22,34 @@ if (args[0] == "--boxes")
     AllGames.RunBoxes(args[1], args.ElementAtOrDefault(2));
     return;
 }
+if (args[0] == "--batch")
+{
+    AllGames.RunBatch(args[1], args.ElementAtOrDefault(2));
+    return;
+}
+if (args[0] == "--extras")
+{
+    AllGames.RunExtras(args[1], args.ElementAtOrDefault(2));
+    return;
+}
+if (args[0] == "--extras-save")
+{
+    AllGames.RealBoxName(Path.GetFullPath(args[1]), Path.GetFullPath(args[2]));
+    return;
+}
 if (args[0] == "--box-save")
 {
     AllGames.RealSave(Path.GetFullPath(args[1]), Path.GetFullPath(args[2]));
+    return;
+}
+if (args[0] == "--generate")
+{
+    AllGames.RunGeneration(args[1], args.ElementAtOrDefault(2));
+    return;
+}
+if (args[0] == "--living-dex")
+{
+    AllGames.RunLivingDex(args[1], args.ElementAtOrDefault(2));
     return;
 }
 if (args[0] == "--strings")
@@ -320,3 +350,4 @@ Console.WriteLine($"{results.Count} checks passed.");
 if (doc.ZaSave != null) ZaChecks.Run(source, Path.Combine(work, "za"));
 else Console.WriteLine("Z-A checks skipped: this save is from another game. Run them on a Z-A save with --za-tools.");
 AllGames.RealSave(source, Path.Combine(work, "boxes"));
+AllGames.RealBoxName(source, Path.Combine(work, "names"));

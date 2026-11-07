@@ -23,6 +23,12 @@ public sealed partial class EditorView
         }
     }
 
+    void BuildGeneratorTools()
+    {
+        AddTool(T("Generar desde Showdown…"), () => OpenGenerator(() => new ShowdownWindow(document!, () => box, ShowArrival, ShowPokemon)));
+        AddTool(T("Pokédex viviente…"), () => OpenGenerator(() => new LivingDexWindow(document!, () => box, ShowPlaced)));
+    }
+
     void BuildBoxTools()
     {
         AddTool(T("Ordenar caja por Pokédex"), () => SortOpenBox(BoxOrder.Pokedex));
@@ -138,6 +144,92 @@ public sealed partial class EditorView
 
     void Warn(string text) { status.Text = text; status.ForeColor = Theme.Danger; UpdateState(); }
 
+    // Everything generated arrives through the boxes, so a save that can't arrange its Pokémon can't take any.
+    void OpenGenerator(Func<ToolWindow> open)
+    {
+        if (document!.CanArrange) OpenTool(open());
+        else Warn(T("Esta partida no permite reorganizar sus Pokémon."));
+    }
+
+    void ShowArrival(Arrival arrival) { ShowArranged(arrival.Entry); Notify(arrival.Message); }
+
+    void ShowPlaced(string message) { ShowArranged(null); Notify(message); }
+
+    // Both tools from the menu, on the save itself. Leaves the document as it found it.
+    void CheckGenerators(Action<bool, string> Check)
+    {
+        var open = document!;
+        void Tool(string text) => AllTools().First(i => i.Text == text).PerformClick();
+        search.Text = ""; tabs.SelectedIndex = 0; ShowBox(0);
+        int before = open.Pokemon.Count;
+
+        var single = OpenFromMenu<ShowdownWindow>(T("Generar desde Showdown…"));
+        Check(single.Owner == Window && tool == single, "Generating from a set opens beside the editor");
+        single.PressGenerate("");
+        Check(single.StatusText == T("Pega primero un set de Showdown.") && !single.Working, "An empty set asks for one");
+        single.PressGenerate("esto no es un set");
+        WaitFor(() => !single.Working, "the refused set");
+        Check(single.StatusText == T("Ese texto no es un set de Showdown.") && open.Pokemon.Count == before && !open.HasChanges, "Text that isn't a set is refused and changes nothing");
+        single.PressGenerate("Pikachu\nLevel: 30\nJolly Nature");
+        Check(single.Working, "Generating runs in the background");
+        Check(single.SetText == "Pikachu\r\nLevel: 30\r\nJolly Nature", "A set copied with bare line feeds still shows on its own lines");
+        WaitFor(() => !single.Working, "the generated set");
+        var made = open.Pokemon.First(p => p.IsNew);
+        Check(made.Original.Species == 25 && made.Edit.Level == 30 && open.Pokemon.Count == before + 1, $"A set becomes a Pokémon in a free place ({single.StatusText})");
+        Check(Catalog.CheckLegality(made).Valid && single.StatusText.Contains(made.Location), "What it generates is legal, and it says where it went");
+        Check(open.HasChanges && save.Enabled && Text.Contains("1 ") && current == made, "The generated Pokémon is pending, counted and on screen");
+        Check(single.RowCount == 1 && single.Cell(0, 0) == made.Location, "The window lists what it made");
+        Pick(open.Pokemon[0]); single.PressRow(0);
+        Check(current == made, "Clicking a row shows that Pokémon in the editor");
+        tabs.SelectedIndex = 0;
+        Check(open.BuildOutput().Length == open.OriginalBytes.Length, "A generated Pokémon can be written");
+        single.Close();
+        Tool(T("Deshacer el último cambio de cajas"));
+        Check(!open.HasChanges && !save.Enabled && open.Pokemon.Count == before, "The box undo takes it back");
+
+        var dex = OpenFromMenu<LivingDexWindow>(T("Pokédex viviente…"));
+        Check(!dex.CanPlace && dex.StatusText.Length != 0, "The living Pokédex says what it does and has nothing to place yet");
+        dex.PressGenerate(); dex.PressStop();
+        WaitFor(() => !dex.Working, "the stopped living Pokédex");
+        Check(!open.HasChanges && open.Pokemon.Count == before && dex.StatusText.Contains(T("Generación detenida.")), "Stopping leaves the save alone");
+        dex.PressGenerate();
+        WaitFor(() => !dex.Working, "the living Pokédex");
+        Check(dex.CanPlace && dex.Ready != 0 && dex.RowCount >= dex.Ready, $"The living Pokédex reports what it made and skipped ({dex.StatusText})");
+        Check(dex.RowCount == dex.Ready || dex.Cell(0, 2).StartsWith(T("Omitido: {0}", ""), StringComparison.Ordinal), "What was skipped comes first, and says why");
+        Check(open.Pokemon.Count == before && !open.HasChanges, "Nothing is placed until asked");
+        int ready = dex.Ready;
+        dex.PressPlace();
+        Check(open.Pokemon.Count == before + ready && open.BoxChangeCount == ready && open.HasChanges && !dex.CanPlace, "Placing them stages them all");
+        Check(open.Pokemon.Where(p => p.IsNew).All(p => Catalog.CheckLegality(p).Valid), "Everything placed is legal");
+        Check(open.BuildOutput().Length == open.OriginalBytes.Length, "The living Pokédex can be written");
+        dex.Close();
+        Tool(T("Deshacer el último cambio de cajas"));
+        Check(!open.HasChanges && !save.Enabled && open.Pokemon.Count == before, "One undo takes the whole living Pokédex back");
+        ShowBox(0); Notify("");
+    }
+
+    // Both tools full of data in every language, for CheckToolLayouts to measure.
+    void InspectGenerators(Action<ToolWindow, string> Inspect)
+    {
+        var open = document!;
+        var single = OpenFromMenu<ShowdownWindow>(T("Generar desde Showdown…"));
+        single.PressGenerate("Pikachu\nLevel: 30");
+        WaitFor(() => !single.Working, "the generated set");
+        single.PressGenerate("Mewtwo\nLevel: 1");
+        WaitFor(() => !single.Working, "the impossible set");
+        Inspect(single, "showdown");
+        var dex = OpenFromMenu<LivingDexWindow>(T("Pokédex viviente…"));
+        Inspect(dex, "living-dex-start");
+        dex.PressGenerate();
+        WaitFor(() => !dex.Working, "the living Pokédex");
+        Inspect(dex, "living-dex");
+        dex.PressPlace();
+        Inspect(dex, "living-dex-placed");
+        dex.Close();
+        if (open.CanUndoLayout) open.ResetLayout();
+        ShowArranged(null); Notify("");
+    }
+
     // Everything the boxes can do, through the same grids and menus a person uses. Leaves the document as it found it.
     void RunBoxChecks(Action<bool, string> Check, string exportFolder)
     {
@@ -148,7 +240,7 @@ public sealed partial class EditorView
             var item = slotMenu.Items.Cast<ToolStripItem>().FirstOrDefault(i => i.Text == text) ?? throw new Exception("No menu entry: " + text);
             item.PerformClick();
         }
-        void Tool(string text) => toolsMenu.Items.Cast<ToolStripItem>().First(i => i.Text == text).PerformClick();
+        void Tool(string text) => AllTools().First(i => i.Text == text).PerformClick();
         search.Text = ""; tabs.SelectedIndex = 0; ShowBox(0);
         var boxed = open.Pokemon.First(p => !p.IsParty);
         var teamFirst = open.TeamSlots()[0]!; var teamSecond = open.TeamSlots()[1]!;
@@ -246,6 +338,8 @@ public sealed partial class EditorView
             T("{0} está en un equipo de combate. Sácalo de ahí en el juego antes de cambiarlo de lugar.", name),
             T("{0} lleva una carta. Quítasela en el juego antes de cambiarlo de lugar.", name),
             T("Las partidas japonesas de Game Boy no se mezclan con las de otros idiomas."),
+            T("{0} generado en {1}.", name, place) + " " + T("Llega sin {0}: no hay en la bolsa. Guarda para aplicarlo.", name + name),
+            T("Pokémon colocados: {0}. Guarda para aplicarlos, o quítalos todos con «Deshacer el último cambio de cajas».", 960),
         ];
         foreach (var message in messages)
         {

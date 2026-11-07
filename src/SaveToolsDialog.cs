@@ -9,7 +9,7 @@ namespace Editrainer;
 /// </summary>
 abstract class ToolWindow : Form
 {
-    const int EditorMargin = 24, ExtraRow = 1, DetailsRow = 3;
+    const int EditorMargin = 24, ExtraRow = 1, DetailsRow = 3, StatusRow = 4;
     readonly TableLayoutPanel body = new() { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 6, Padding = new Padding(16, 10, 16, 8) };
     readonly FlowLayoutPanel actions = new() { Dock = DockStyle.Fill, FlowDirection = FlowDirection.RightToLeft, WrapContents = false, Margin = Padding.Empty };
     readonly Label status = Theme.Label("", 9, color: Theme.Muted);
@@ -38,7 +38,7 @@ abstract class ToolWindow : Form
         body.RowStyles.Add(new(SizeType.Absolute, 34)); body.RowStyles.Add(new(SizeType.AutoSize)); body.RowStyles.Add(new(SizeType.Percent, 100));
         body.RowStyles.Add(new(SizeType.Absolute, 0)); body.RowStyles.Add(new(SizeType.Absolute, 40)); body.RowStyles.Add(new(SizeType.Absolute, 48));
         body.Controls.Add(Theme.Label(title, 11, true), 0, 0);
-        body.Controls.Add(Grid, 0, 2); body.Controls.Add(Details, 0, DetailsRow); body.Controls.Add(status, 0, 4); body.Controls.Add(actions, 0, 5);
+        body.Controls.Add(Grid, 0, 2); body.Controls.Add(Details, 0, DetailsRow); body.Controls.Add(status, 0, StatusRow); body.Controls.Add(actions, 0, 5);
         var close = Theme.Button(T("Cerrar")); close.Click += (_, _) => Close();
         actions.Controls.Add(close); CancelButton = close;
         Controls.Add(body);
@@ -73,7 +73,18 @@ abstract class ToolWindow : Form
 
     protected void AddAbove(Control control) => body.Controls.Add(control, 0, ExtraRow);
     protected void AddAction(Button button) => actions.Controls.Add(button);
+
+    // A row of buttons has to fit at the smallest size, whatever a language makes of their texts.
+    protected override void OnLoad(EventArgs e)
+    {
+        base.OnLoad(e);
+        int needed = actions.Controls.Cast<Control>().Sum(c => c.GetPreferredSize(Size.Empty).Width + c.Margin.Horizontal) + body.Padding.Horizontal + EditorMargin;
+        if (MinimumSize.Width >= needed) return;
+        MinimumSize = new Size(needed, MinimumSize.Height);
+        if (Width < needed) Width = needed;
+    }
     protected void ShowDetails(int height) { body.RowStyles[DetailsRow].Height = height; Details.Visible = true; }
+    protected void MakeRoomForStatus(int height) => body.RowStyles[StatusRow].Height = height;
     protected void Say(string text, bool problem = false) { status.Text = text; status.ForeColor = problem ? Theme.Danger : Theme.Muted; }
 
     protected void SetColumns(IEnumerable<string> headers, bool stretchLast)

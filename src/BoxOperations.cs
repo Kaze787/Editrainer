@@ -49,10 +49,12 @@ public sealed partial class SaveDocument
 
     public PokemonEntry? At(SlotPlace place) => Pokemon.FirstOrDefault(p => p.Place == place);
 
+    HashSet<int> TakenPlaces() => Pokemon.Where(p => !p.IsParty).Select(p => p.Index).Concat(unreadable.Where(p => !p.IsParty).Select(p => p.Index)).ToHashSet();
+
     /// <summary>The first free place from this box on, going round to the first box after the last.</summary>
     public SlotPlace? FreePlace(int box)
     {
-        var used = Pokemon.Where(p => !p.IsParty).Select(p => p.Index).Concat(unreadable.Where(p => !p.IsParty).Select(p => p.Index)).ToHashSet();
+        var used = TakenPlaces();
         int count = OpenBoxes * Save.BoxSlotCount, start = box < OpenBoxes ? box * Save.BoxSlotCount : 0;
         for (int i = 0; i < count; i++)
             if (!used.Contains((start + i) % count)) return new(false, (start + i) % count);
@@ -266,7 +268,7 @@ public sealed partial class SaveDocument
         var places = Enumerable.Range(first, Save.BoxSlotCount).Where(i => !taken.Contains(i)).ToList();
         var sorted = Sorted(boxed.Except(staying), order).ToList();
         Change(() => { for (int i = 0; i < sorted.Count; i++) sorted[i].Index = places[i]; });
-        return T("{0} ordenada. Guarda para aplicarlo.", Rules.BoxName(box));
+        return T("{0} ordenada. Guarda para aplicarlo.", BoxName(box));
     }
 
     static IEnumerable<PokemonEntry> Sorted(IEnumerable<PokemonEntry> group, BoxOrder order) => order switch {

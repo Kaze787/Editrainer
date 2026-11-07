@@ -52,6 +52,8 @@ static class Theme
     public static Color AccentLight => IsDark ? Color.FromArgb(27, 66, 59) : Color.FromArgb(226, 245, 238);
     public static Color Line => IsDark ? Color.FromArgb(62, 70, 80) : Color.FromArgb(220, 228, 235);
     public static Color Danger => IsDark ? Color.FromArgb(244, 124, 130) : Color.FromArgb(185, 52, 58);
+    public static Color MarkingBlue => IsDark ? Color.FromArgb(110, 176, 255) : Color.FromArgb(32, 104, 200);
+    public static Color MarkingPink => IsDark ? Color.FromArgb(255, 140, 190) : Color.FromArgb(205, 50, 120);
 
     public static void Use(bool dark)
     {
@@ -61,8 +63,7 @@ static class Theme
 #pragma warning restore WFO5001
     }
 
-    // Segoe UI has no Chinese, and borrowing a font glyph by glyph gives uneven text.
-    public static Font Font(float size = 10, bool bold = false) => new(Strings.Current.Code == "zh" ? "Microsoft YaHei UI" : "Segoe UI", size, bold ? FontStyle.Bold : FontStyle.Regular);
+    public static Font Font(float size = 10, bool bold = false) => new(Strings.Current.Font, size, bold ? FontStyle.Bold : FontStyle.Regular);
     public static Label Label(string text = "", float size = 10, bool bold = false, Color? color = null) => new() {
         Text = text, Font = Font(size, bold), ForeColor = color ?? Ink, AutoSize = false,
         Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft, Margin = new Padding(3),

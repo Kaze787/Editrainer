@@ -89,7 +89,7 @@ public sealed class MainForm : Form
         var checks = new List<string>();
         void Check(bool ok, string description) { if (!ok) throw new Exception(description); checks.Add(description); }
         var system = CultureInfo.CurrentUICulture;
-        foreach (var (culture, language) in new[] { ("es-MX", "es"), ("en-GB", "en"), ("zh-CN", "zh"), ("zh-TW", "zh"), ("fr-CA", "fr"), ("de-DE", "en"), ("pt-BR", "en") })
+        foreach (var (culture, language) in new[] { ("es-MX", "es"), ("en-GB", "en"), ("zh-CN", "zh"), ("zh-TW", "zh"), ("fr-CA", "fr"), ("de-DE", "de"), ("de-AT", "de"), ("it-IT", "it"), ("ja-JP", "ja"), ("ko-KR", "ko"), ("pt-BR", "pt-BR"), ("pt-PT", "pt-BR"), ("ru-RU", "en"), ("nl-NL", "en") })
         {
             CultureInfo.CurrentUICulture = new CultureInfo(culture);
             Check(AppSettings.Load(Path.Combine(appRoot, "nothing-saved-here")).Language == language, $"The first run on a {culture} Windows uses {language}");
@@ -113,6 +113,13 @@ public sealed class MainForm : Form
         Check(Text.Contains("modification"), $"The window title follows the language ({Text})");
         Check(TitleBarSettles(brightness => brightness < .3f), "The title bar turns dark");
         view.CheckResumed(before, "Enregistrer", "Bonbon Exp. XL", Check);
+
+        foreach (var (language, saveText, itemName) in new[] { ("de", "Speichern", "EP-Bonbon XL"), ("it", "Salva partita", "Caram. esp. XL"), ("ja", "セーブ", "けいけんアメＸＬ"), ("ko", "저장", "경험사탕XL"), ("pt-BR", "Salvar jogo", "Exp. Candy XL") })
+        {
+            ChooseInDialog(new AppSettings(language, true));
+            Check(Strings.Current.Code == language && AppSettings.Load(appRoot) == Settings, $"{language} is in use and remembered");
+            view.CheckResumed(before, saveText, itemName, Check);
+        }
 
         ChooseInDialog(new AppSettings("es", false));
         Check(Handle == window && Controls.Count == 1, "The window also stays open on the way back");

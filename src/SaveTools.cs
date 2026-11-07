@@ -43,7 +43,7 @@ public static class SaveTools
 
     // What cambios.json holds. Any part can be missing from an old or damaged backup.
     sealed record BackupRecord(string? Game, string? Source, string? Destination, string? OriginalHash, MoneyRecord? Money,
-        List<ItemRecord>? Items, List<PokemonRecord>? Pokemon, string? RestoredFrom);
+        List<ItemRecord>? Items, List<PokemonRecord>? Pokemon, string? RestoredFrom, List<string>? Extras = null);
     sealed record MoneyRecord(long Before, long After);
     sealed record ItemRecord(string? Name, int Before, int After);
     sealed record PokemonRecord(string? DisplayName, string? SpeciesName, string? Location, Draft? Before, Draft? After);
@@ -223,6 +223,7 @@ public static class SaveTools
         if (a.Form != b.Form || a.FormArgument != b.FormArgument) yield return T("Forma");
         if (a.Ball != b.Ball) yield return T("Poké Ball");
         if (a.Friendship != b.Friendship) yield return Change(T("Amistad"), a.Friendship, b.Friendship);
+        if (!a.SameMoreData(b)) yield return T("Más datos");
     }
 
     /// <summary>Every backup, newest first. Reading never creates the folder, and a damaged backup is still listed.</summary>
@@ -269,10 +270,13 @@ public static class SaveTools
             string name = $"{p.DisplayName} ({p.Location})";
             return edits.Length == 0 ? name : $"{name}: {edits}";
         }));
+        var extras = record.Extras ?? [];
+        changes.AddRange(extras);
         var parts = new List<string>();
         if (pokemon.Count != 0) parts.Add(T("{0} Pokémon", pokemon.Count));
         if (money != null) parts.Add(T("Dinero"));
         if (items.Count != 0) parts.Add(items.Count == 1 ? T("1 objeto") : T("{0} objetos", items.Count));
+        if (extras.Count != 0) parts.Add(T("Otros datos: {0}", extras.Count));
         return (parts.Count == 0 ? T("Sin cambios") : string.Join(" · ", parts), changes);
     }
 
