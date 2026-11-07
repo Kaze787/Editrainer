@@ -256,7 +256,7 @@ Check(sighted.GetIsFormSeen(0) && sighted.GetIsGenderSeen(0) && !sighted.GetDisp
 var registered = realAfter.Zukan.GetEntry(newlyCaught);
 Check(registered.GetIsFormCaught(0) && registered.GetLanguageFlag(realAfter.Language) && registered.GetDisplayIsNew(), "A caught species looks like a catch in a played save");
 var released = realAfter.Zukan.GetEntry(uncaught);
-Check(released.IsSeen && !released.IsCaught && !released.GetLanguageFlag(realAfter.Language), "Clearing caught keeps what was seen");
+Check(released.IsSeen && !released.IsCaught && !released.GetLanguageFlag(realAfter.Language) && !released.GetDisplayIsNew(), "Clearing caught keeps what was seen");
 var wiped = realAfter.Zukan.GetEntry(emptied);
 Check(!wiped.IsSeen && !wiped.IsCaught && wiped.DisplayForm == 0, "Clearing seen empties the entry");
 var changedBlocks = realBefore.AllBlocks.Zip(realAfter.AllBlocks).Where(b => !b.First.Data.SequenceEqual(b.Second.Data)).Select(b => b.First.Key).ToList();

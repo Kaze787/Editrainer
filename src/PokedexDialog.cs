@@ -46,7 +46,7 @@ sealed class PokedexDialog : Form
         grid.Columns.Add(new DataGridViewCheckBoxColumn { HeaderText = T("Capturado"), Width = 130, SortMode = DataGridViewColumnSortMode.NotSortable });
         layout.Controls.Add(grid, 0, 1);
 
-        string note = T("Marcar registra cada especie con su forma principal. Las formas, shinies e idiomas que ya tengas se conservan.");
+        string note = T("Marcar registra cada especie y conserva las formas, shinies e idiomas que ya tengas.");
         if (!editor.CanEdit) note = T("Esta versión de la partida guarda la Pokédex en un formato anterior. Puedes consultarla, pero no cambiarla aquí.");
         else if (!editor.CanClear) note += "\n" + T("En este juego el progreso viene de la investigación, así que lo ya registrado no se puede desmarcar.");
         var hint = Theme.Label(note + "\n" + T("Los cambios se aplican al guardar la partida."), 9, color: Theme.Muted);

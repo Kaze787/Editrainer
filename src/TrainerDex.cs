@@ -343,7 +343,7 @@ public sealed class PokedexEditor
             case SAV9SV s: s.Zukan.DexKitakami.Get(species).ClearCaught(); break;
             case SAV9ZA s:
                 var entry = s.Zukan.GetEntry(species);
-                entry.ClearCaught();
+                entry.ClearCaught(); entry.SetDisplayIsNew(false);
                 // A seen entry keeps showing what was seen.
                 for (byte form = 0; form < s.Personal[species].FormCount; form++)
                 {

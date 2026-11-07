@@ -159,7 +159,7 @@ Rows keep their room for fields and labels. If you shrink the window and the con
 **Pokédex** lists every species the open game can register. Search by name or number, tick **Seen** or **Caught**, or use **Mark all seen** and **Mark all caught**.
 
 - A caught Pokémon counts as seen, and clearing **Seen** also clears **Caught**.
-- Marking registers the species with its main form. Forms, shinies and languages you already have are kept, and it doesn't fill in the rest of them.
+- Marking registers the species and keeps the forms, shinies and languages you already have. It isn't meant to complete them: how many forms it adds depends on the game.
 - A game can still hide what you marked until you reach that point of the story, such as species outside the regional Pokédex before you get the National one.
 - **Legends: Arceus** only adds marks, because its progress comes from research: what's already registered can't be cleared.
 - **Scarlet and Violet** saves from before version 2.0.1 keep the Pokédex in an older format. You can look at it, but not change it.
