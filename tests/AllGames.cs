@@ -733,7 +733,7 @@ static class AllGames
             Reopened(label, small, path, "equipo de uno");
         }
         doc = SaveDocument.Open(path);
-        Check(label, doc.FreePlace(doc.BoxCount - 1) is { Index: var wrap } && wrap >= (doc.BoxCount - 1) * doc.Save.BoxSlotCount, "busca lugar desde la caja pedida", doc.FreePlace(doc.BoxCount - 1).ToString());
+        Check(label, doc.FreePlace(doc.BoxCount - 1) is { Index: var wrap } && wrap >= (doc.BoxCount - 1) * doc.Save.BoxSlotCount, "busca lugar desde la caja pedida", doc.FreePlace(doc.BoxCount - 1)?.ToString() ?? "ninguno");
     }
 
     static void Sorting(GameVersion version, string label, string work)
@@ -1186,7 +1186,11 @@ static class AllGames
         Directory.CreateDirectory(work);
         string hash = SaveDocument.Hash(File.ReadAllBytes(source));
         var doc = SaveDocument.Open(source);
-        var save = doc.ZaSave!;
+        if (doc.ZaSave is not { } save)
+        {
+            Console.WriteLine($"Se omiten las comprobaciones byte a byte: son para Z-A y esta partida es de {doc.Rules.FullName}. Las de cada juego están en --boxes.");
+            return;
+        }
         int slot = save.SIZE_BOXSLOT, teamSlot = Party9a.SlotSize;
         var boxes = save.BoxInfo.Data.ToArray(); var party = save.PartyInfo.Data.ToArray();
         int count = doc.Pokemon.Count, teamCount = save.PartyCount;
