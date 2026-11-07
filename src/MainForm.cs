@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.Text.Json;
 
 namespace Editrainer;
@@ -78,6 +79,14 @@ public sealed class MainForm : Form
     {
         var checks = new List<string>();
         void Check(bool ok, string description) { if (!ok) throw new Exception(description); checks.Add(description); }
+        var system = CultureInfo.CurrentUICulture;
+        foreach (var (culture, language) in new[] { ("es-MX", "es"), ("en-GB", "en"), ("zh-CN", "zh"), ("zh-TW", "zh"), ("fr-CA", "fr"), ("de-DE", "en"), ("pt-BR", "en") })
+        {
+            CultureInfo.CurrentUICulture = new CultureInfo(culture);
+            Check(AppSettings.Load(Path.Combine(appRoot, "nothing-saved-here")).Language == language, $"The first run on a {culture} Windows uses {language}");
+        }
+        CultureInfo.CurrentUICulture = system;
+
         view.StagePendingEdits();
         var before = view.TakeSnapshot();
         var (window, bounds, first) = (Handle, Bounds, view);

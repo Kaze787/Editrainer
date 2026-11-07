@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using static Editrainer.Strings;
 
@@ -10,8 +11,15 @@ public sealed record AppSettings(string Language = "es", bool Dark = false)
 
     public static AppSettings Load(string root)
     {
-        try { return JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(Path.Combine(root, FileName))) ?? new(); }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException or JsonException) { return new(); }
+        try { return JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(Path.Combine(root, FileName))) ?? FirstRun(); }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or JsonException) { return FirstRun(); }
+    }
+
+    // Until the user chooses, the app speaks the language of Windows, or English if it doesn't have that one.
+    internal static AppSettings FirstRun()
+    {
+        var system = CultureInfo.CurrentUICulture.TwoLetterISOLanguageName;
+        return new(Languages.Any(l => l.Code == system) ? system : "en");
     }
 
     // A folder that can't be written only means the choice lasts until the app closes.
