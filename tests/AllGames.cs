@@ -514,9 +514,9 @@ static class AllGames
         var entry = doc.Pokemon.First(p => !p.IsParty);
         var other = doc.Pokemon.Last(p => !p.IsParty);
         Check(label, Catalog.CheckLegality(entry).Report.Length != 0, "da un veredicto de legalidad");
-        // Blue only came out in Japan, and that alphabet has no Latin letters.
-        string shortName = entry.Original.Japanese ? "アイウ" : rules.IsGameBoy ? "ABC" : "Abc";
-        string trainerName = entry.Original.Japanese ? "アイウ" : "ANA";
+        // Japanese Blue has no Latin letters.
+        bool kana = entry.Original.Japanese && rules.IsGameBoy;
+        string shortName = kana ? "アイウ" : rules.IsGameBoy ? "ABC" : "Abc", trainerName = kana ? "アイ" : "ANA";
         entry.Edit.Level = 42; entry.Edit.Nickname = shortName; entry.Edit.Trainer = trainerName;
         var balls = Catalog.GetBalls(entry);
         Check(label, rules.HasBall == balls.Count > 1, "ofrece Poké Balls solo donde existen", balls.Count.ToString());
