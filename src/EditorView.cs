@@ -221,6 +221,7 @@ public sealed partial class EditorView : UserControl
         AddTool(T("Entrenador…"), () => OpenSaveTool(document!.Trainer.IsSupported, T("Esta partida no guarda un entrenador que se pueda editar aquí."), () => new TrainerDialog(document)));
         AddTool(T("Pokédex…"), () => OpenSaveTool(document!.Pokedex.CanView, T("Esta partida no tiene Pokédex."), () => new PokedexDialog(document)));
         BuildBoxTools();
+        BuildExtraTools();
     }
 
     // Tools only prepare changes: they are saved with everything else.
@@ -566,6 +567,7 @@ public sealed partial class EditorView : UserControl
     {
         bool loaded = document != null;
         if (zaTool != null) zaTool.Available = document?.Rules.IsZA == true;
+        ShowExtraTools();
         toolsButton.Visible = toolsMenu.Items.Cast<ToolStripItem>().Any(item => item.Available);
         shiny.Enabled = loaded && current != null;
         editor.Enabled = loaded; tabs.TabPages[0].Enabled = tabs.TabPages[1].Enabled = tabs.TabPages[DetailsTab].Enabled = loaded && current != null;
@@ -804,6 +806,7 @@ public sealed partial class EditorView : UserControl
                 Check(cut == null, $"Nothing is cut off on the right of {dialog.Text} ({cut?.GetType().Name} {cut?.Text})");
             }
         }
+        CheckExtraLayouts(Check, sizeLabel);
     }
 
     public void RunInteractionChecks(string reportPath)
@@ -934,6 +937,7 @@ public sealed partial class EditorView : UserControl
         Check(toolsMenu.Items.Cast<ToolStripItem>().Any(i => i.Text == T("Entrenador…")) && toolsMenu.Items.Cast<ToolStripItem>().Any(i => i.Text == T("Pokédex…")), "The Tools menu offers the trainer and the Pokédex");
         using (var dialog = OffScreen(new TrainerDialog(document))) dialog.RunInteractionChecks(document, Check);
         using (var dialog = OffScreen(new PokedexDialog(document))) dialog.RunInteractionChecks(document, Check);
+        CheckExtraTools(Check);
         document.Trainer.Edit = document.Trainer.Original with { Name = "Ana" }; document.Pokedex.Set(document.Pokedex.Entries[0], true, true);
         UpdateState(); ShowTrainer();
         Check(save.Enabled && Text.Contains($"{document.ToolChangeCount} ") && document.ToolChangeCount == 2 && trainer.Text.StartsWith("Ana"), "Tool changes enable Save and count in the window title");
@@ -1198,6 +1202,7 @@ public sealed partial class EditorView : UserControl
     /// <summary>The same rules in any language or theme, with nothing to do with what the save contains.</summary>
     public void RunLayoutChecks(string reportPath, AppSettings expected)
     {
+        extraPictures = reportPath;
         var checks = new List<string>();
         void Check(bool ok, string description) { if (!ok) throw new Exception(description); checks.Add(description); }
         Check(document != null && Strings.Current.Code == expected.Language && Theme.IsDark == expected.Dark, "The window opens in the chosen language and theme");
