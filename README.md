@@ -144,6 +144,30 @@ Click **Save game** to apply the money, item and Pokémon changes together, afte
 
 Rows keep their room for fields and labels. If you shrink the window and the content doesn't fit, you can scroll inside each tab.
 
+## Boxes
+
+Move your Pokémon around the way you would in the game. Like every other edit, nothing changes in your file until you press **Save game**, and each Pokémon with a pending change shows its dot.
+
+- **Move and swap:** drag a Pokémon to another place in the box or the team. If someone is already there, they swap. To reach another box, select the Pokémon, turn the page and right-click a place there: **Move here** or **Swap places**.
+- **Clone:** hold **Ctrl** while you drag, or right-click an empty place to clone the selected Pokémon there. **Clone**, on a Pokémon's own menu, uses the first free place.
+- **Delete:** right-click a Pokémon and choose **Delete**.
+- **Export and import:** right-click a Pokémon to save it as a `.pk*` file, or an empty place to bring one in. A Pokémon from another game is converted where PKHeX has a route (older to newer, Game Boy to Gen 7 or later, and between the Switch games) and refused, with the reason, where it doesn't. Eggs hatch when they change format, and the Pokédex is not updated.
+- **Sort:** in **Tools**, sort the open box by Pokédex number, level or name.
+- **Undo:** right-click any place to undo the last change, or use **Tools** to undo it or all of them.
+
+Some things stay in place on purpose, and the app tells you why when you try:
+
+- Boxes the game hasn't unlocked yet can't receive anyone, because the game wouldn't show them.
+- The team always keeps at least one Pokémon that isn't an egg, and never has gaps: whoever leaves, the rest move up, and whoever joins goes last.
+- Pokémon in a saved battle team, and your partner in Let's Go, can't be moved. Take them out of the team in the game first. Team members in Let's Go can be moved, but not deleted.
+- A Pokémon holding mail in Gen 2 to 5 stays where it is, because the letter is stored apart from it.
+- Game Boy boxes and the Let's Go storage are lists with no gaps. Taking a Pokémon out closes the gap, and one dropped on an empty place goes to the end of the list.
+- A held item goes back to the bag when its Pokémon is deleted, so the bag needs room for it. A clone takes its own unit from the bag, or arrives without the item if there is none.
+- In Legends: Z-A, a Pokémon holding a Mega Stone or an orb can't be cloned, because only one Pokémon can hold each.
+- Colosseum and XD saves can't be rearranged.
+
+Every change is checked after writing: each place of the team and the boxes has to hold exactly what it should, and nothing else may differ. This was tested on all 38 games with generated saves and byte by byte on real Z-A saves, but not by loading the results in each game, so try it on a copy first.
+
 ## Backups
 
 Backups go in the `Backups` folder, inside the app's folder. The **Open backups** link opens it. Each save includes:

@@ -7,7 +7,7 @@ using static Editrainer.Strings;
 namespace Editrainer;
 
 /// <summary>Everything inside the window. Texts and colours are set while it is built, so new settings mean a new view.</summary>
-public sealed class EditorView : UserControl
+public sealed partial class EditorView : UserControl
 {
     const string AppVersion = "2.2";
     const int SidebarWidth = 340, TeamTitleRow = 2, TeamTitleHeight = 26, TeamGridRow = 3, TeamGridHeight = 72, HeroHeight = 172, BagTab = 2, DetailsTab = 3;
@@ -84,7 +84,7 @@ public sealed class EditorView : UserControl
         boxGrid = new SlotGrid(sprites, tips, emptyText: T("Ningún Pokémon de las cajas coincide."));
         Text = AppTitle; Font = Theme.Font(); BackColor = Theme.Background;
         ForeColor = Theme.Ink; Dock = DockStyle.Fill;
-        BuildLayout(); WireEvents();
+        BuildLayout(); WireEvents(); WireBoxes();
         AllowDrop = true;
         DragEnter += (_, e) => { if (e.Data?.GetDataPresent(DataFormats.FileDrop) == true) e.Effect = DragDropEffects.Copy; };
         DragDrop += (_, e) => { if (e.Data?.GetData(DataFormats.FileDrop) is string[] files && files.Length > 0 && CanDiscard()) LoadFile(files[0]); };
@@ -205,6 +205,7 @@ public sealed class EditorView : UserControl
     // Each tool that works on the whole save adds its entry here.
     void BuildTools()
     {
+        BuildBoxTools();
     }
 
     void AddTool(string text, Action run) => toolsMenu.Items.Add(text, null, (_, _) => { if (document != null) run(); });
@@ -522,7 +523,7 @@ public sealed class EditorView : UserControl
             evTotal.ForeColor = limit != 0 && total > limit ? Theme.Danger : Theme.Accent;
         }
         if (error == null) ShowLegality();
-        Text = AppTitle + (loaded && document!.HasChanges ? T(" · {0} cambios pendientes", document.DirtyCount + document.ResourceChangeCount) : "");
+        Text = AppTitle + (loaded && document!.HasChanges ? T(" · {0} cambios pendientes", document.DirtyCount + document.ResourceChangeCount + document.BoxChangeCount) : "");
         teamGrid.Invalidate(); boxGrid.Invalidate();
     }
 
@@ -548,6 +549,7 @@ public sealed class EditorView : UserControl
     {
         if (document == null) return;
         bool searching = search.Text.Trim().Length != 0;
+        teamGrid.Movable = boxGrid.Movable = !searching && document.CanArrange;
         teamGrid.SetSlots(document.TeamSlots(), SaveDocument.TeamSize, searching ? shown : null);
         if (searching) boxGrid.SetSlots(shown.Where(p => !p.IsParty), SaveDocument.TeamSize);
         else boxGrid.SetSlots(document.BoxSlots(box), document.Rules.BoxColumns);
@@ -689,7 +691,7 @@ public sealed class EditorView : UserControl
     }
     protected override void Dispose(bool disposing)
     {
-        if (disposing) tips.Dispose();
+        if (disposing) { tips.Dispose(); slotMenu.Dispose(); }
         base.Dispose(disposing);
     }
 
@@ -820,7 +822,8 @@ public sealed class EditorView : UserControl
         Check(document.DirtyCount == 0, "Pasting a Pokémon's own set changes nothing");
         PasteShowdown("Pikachu\nLevel: 5");
         Check(status.Text.Contains("Pikachu") && document.DirtyCount == 0, "A set for another species is refused");
-        tabs.SelectedIndex = BagTab; resources.RunInteractionChecks(Check);
+        RunBoxChecks(Check, Path.GetDirectoryName(Path.GetFullPath(reportPath))!);
+        Choose(4); tabs.SelectedIndex = BagTab; resources.RunInteractionChecks(Check);
         Check(!save.Enabled && !document.HasChanges && heroPanel?.Visible == false, "Resource undo clears global pending changes and the bag tab hides the Pokémon header");
         Choose(4); tabs.SelectedIndex = 0; equipment.RunInteractionChecks(Check); resources.RefreshDraft(); UpdateState();
         Check(!document.HasChanges && !save.Enabled, "Equipment and friendship test edits can be completely undone");
@@ -891,6 +894,7 @@ public sealed class EditorView : UserControl
         Check(document != null && Strings.Current.Code == expected.Language && Theme.IsDark == expected.Dark, "The window opens in the chosen language and theme");
         CheckLayout(Check, "normal window");
         Window.Size = Window.MinimumSize; CheckLayout(Check, "minimum window");
+        CheckBoxMessages(Check);
         File.WriteAllText(reportPath, JsonSerializer.Serialize(new { passed = checks.Count, checks }, new JsonSerializerOptions { WriteIndented = true }));
     }
 
@@ -901,6 +905,7 @@ public sealed class EditorView : UserControl
     {
         Pick(document!.Pokemon.First(p => !p.IsParty)); ivs[0].Value = ivs[0].Value == 13 ? 14 : 13;
         document.SetItemCount(1128, 7); tabs.SelectedIndex = 1;
+        document.Clone(document.Pokemon[0], document.FreePlace(box)!.Value);
     }
 
     internal void CheckResumed(Snapshot before, string saveText, string itemName, Action<bool, string> Check)
@@ -908,6 +913,7 @@ public sealed class EditorView : UserControl
         var edited = current!; var open = document!;
         Check(open == before.Document && edited == before.Entry && edited.Dirty && open.GetItemCount(1128) == 7, "Pending edits survive the change");
         Check(tabs.SelectedIndex == before.Tab && box == before.Box && box == open.BoxOf(edited), "The tab and the open box survive the change");
+        Check(open.Pokemon.Any(p => p.IsNew) && open.CanUndoLayout, "A pending box change survives the change");
         Check(save.Text == saveText, $"The new view speaks the new language ({saveText})");
         Check(open.Items.First(i => i.Id == 1128).Name == itemName, $"Item names follow the language ({itemName})");
         Check(open.ValidateEdits() == null && open.BuildOutput().Length == open.OriginalBytes.Length, "The save can still be written");

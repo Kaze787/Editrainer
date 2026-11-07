@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Drawing.Drawing2D;
 using static Editrainer.Strings;
 
@@ -13,8 +14,10 @@ sealed class SlotGrid : ScrollableControl
     readonly string emptyText;
     List<PokemonEntry?> slots = [];
     HashSet<PokemonEntry>? matches;
-    PokemonEntry? selected, hovered;
-    int columns = 6, tile = 1;
+    PokemonEntry? selected;
+    int columns = 6, tile = 1, hovered = -1, pressed = -1, dropOver = -1;
+    Point pressedAt;
+    bool dragging, copying;
 
     public SlotGrid(SpriteStore sprites, ToolTip tips, bool showsLevel = false, string emptyText = "")
     {
@@ -25,6 +28,14 @@ sealed class SlotGrid : ScrollableControl
     }
 
     public event Action<PokemonEntry>? Picked;
+    /// <summary>A Pokémon was dropped: its grid and place, the grid and place it landed on, and whether Ctrl asks for a copy.</summary>
+    public event Action<SlotGrid, int, SlotGrid, int, bool>? Dropped;
+    /// <summary>A right click on a place, or on nothing (-1), and where it happened.</summary>
+    public event Action<int, Point>? MenuRequested;
+    /// <summary>The other grid a dragged Pokémon can land on.</summary>
+    [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)] internal SlotGrid? Partner { get; set; }
+    /// <summary>Whether what the grid shows are real places, which Pokémon can be dragged between.</summary>
+    [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)] internal bool Movable { get; set; }
     public IReadOnlyList<PokemonEntry?> Slots => slots;
     int TileHeight => tile + (showsLevel ? LogicalToDeviceUnits(LevelHeight) : 0);
 
@@ -72,10 +83,34 @@ sealed class SlotGrid : ScrollableControl
         else if (place.Bottom > ClientSize.Height) AutoScrollPosition = new Point(0, scrolled + place.Bottom - ClientSize.Height);
     }
 
-    PokemonEntry? EntryAt(Point point)
+    int IndexAt(Point point)
     {
-        for (int i = 0; i < slots.Count; i++) if (SlotBounds(i).Contains(point)) return slots[i];
+        for (int i = 0; i < slots.Count; i++) if (SlotBounds(i).Contains(point)) return i;
+        return -1;
+    }
+
+    (SlotGrid Grid, int Index)? DropTarget(Point screen)
+    {
+        foreach (var grid in new[] { this, Partner })
+            if (grid is { Visible: true, Movable: true } && grid.RectangleToScreen(grid.ClientRectangle).Contains(screen)
+                && grid.IndexAt(grid.PointToClient(screen)) is >= 0 and var index) return (grid, index);
         return null;
+    }
+
+    void ShowDropTarget((SlotGrid Grid, int Index)? target)
+    {
+        foreach (var grid in new[] { this, Partner })
+        {
+            int over = target is { } place && place.Grid == grid ? place.Index : -1;
+            if (grid == null || grid.dropOver == over) continue;
+            grid.dropOver = over; grid.Invalidate();
+        }
+    }
+
+    void EndDrag()
+    {
+        ShowDropTarget(null);
+        pressed = -1; dragging = false; copying = false;
     }
 
     // Tiles first: the base class would otherwise add a scrollbar for the size they had before.
@@ -85,17 +120,45 @@ sealed class SlotGrid : ScrollableControl
     {
         base.OnMouseDown(e);
         Focus();
-        if (EntryAt(e.Location) is { } entry) Picked?.Invoke(entry);
+        int index = IndexAt(e.Location);
+        pressed = e.Button == MouseButtons.Left && Movable && index >= 0 && slots[index] != null ? index : -1;
+        pressedAt = e.Location;
+        // A right click acts on the place under it, without changing who is selected.
+        if (e.Button != MouseButtons.Right && index >= 0 && slots[index] is { } entry) Picked?.Invoke(entry);
+    }
+
+    protected override void OnMouseUp(MouseEventArgs e)
+    {
+        base.OnMouseUp(e);
+        if (e.Button == MouseButtons.Right) { MenuRequested?.Invoke(IndexAt(e.Location), e.Location); return; }
+        bool dropped = dragging, copy = copying || ModifierKeys.HasFlag(Keys.Control);
+        int from = pressed;
+        var target = DropTarget(PointToScreen(e.Location));
+        EndDrag();
+        Cursor = IndexAt(e.Location) >= 0 ? Cursors.Hand : Cursors.Default;
+        if (dropped && target is { } place) Dropped?.Invoke(this, from, place.Grid, place.Index, copy);
     }
 
     protected override void OnMouseMove(MouseEventArgs e)
     {
         base.OnMouseMove(e);
-        var under = EntryAt(e.Location);
-        if (under == hovered) return;
-        hovered = under;
+        if (pressed >= 0 && e.Button != MouseButtons.Left) EndDrag();
+        var drag = SystemInformation.DragSize;
+        if (pressed >= 0 && !dragging) dragging = Math.Abs(e.X - pressedAt.X) >= drag.Width / 2 || Math.Abs(e.Y - pressedAt.Y) >= drag.Height / 2;
+        if (dragging)
+        {
+            var target = DropTarget(PointToScreen(e.Location));
+            ShowDropTarget(target);
+            Cursor = target == null ? Cursors.No : Cursors.Hand;
+            return;
+        }
+        int index = IndexAt(e.Location);
+        if (index == hovered) return;
+        hovered = index;
+        var under = index >= 0 ? slots[index] : null;
         Cursor = under == null ? Cursors.Default : Cursors.Hand;
-        tips.SetToolTip(this, under == null ? "" : $"{under.DisplayName}  ·  {under.SpeciesName}  ·  {T("Nv. {0}", under.Edit.Level)}  ·  {under.Location}");
+        tips.SetToolTip(this, under != null ? $"{under.DisplayName}  ·  {under.SpeciesName}  ·  {T("Nv. {0}", under.Edit.Level)}  ·  {under.Location}"
+            : Movable && index >= 0 ? T("Arrastra un Pokémon aquí, o usa el clic derecho para clonar o importar.") : "");
     }
 
     protected override bool IsInputKey(Keys keyData) => keyData is Keys.Left or Keys.Right or Keys.Up or Keys.Down || base.IsInputKey(keyData);
@@ -104,6 +167,7 @@ sealed class SlotGrid : ScrollableControl
     protected override void OnKeyDown(KeyEventArgs e)
     {
         base.OnKeyDown(e);
+        if (e.KeyCode == Keys.Escape) { EndDrag(); return; }
         int step = e.KeyCode switch { Keys.Left => -1, Keys.Right => 1, Keys.Up => -columns, Keys.Down => columns, _ => 0 };
         if (step == 0) return;
         e.Handled = true;
@@ -122,14 +186,14 @@ sealed class SlotGrid : ScrollableControl
         for (int i = 0; i < slots.Count; i++)
         {
             var place = SlotBounds(i);
-            if (place.IntersectsWith(e.ClipRectangle)) DrawSlot(g, place, slots[i]);
+            if (place.IntersectsWith(e.ClipRectangle)) DrawSlot(g, place, slots[i], i == dropOver);
         }
     }
 
-    void DrawSlot(Graphics g, Rectangle place, PokemonEntry? entry)
+    void DrawSlot(Graphics g, Rectangle place, PokemonEntry? entry, bool dropTarget)
     {
         var corner = new Size(Corner, Corner);
-        bool chosen = entry != null && entry == selected;
+        bool chosen = dropTarget || entry != null && entry == selected;
         var outline = new Rectangle(place.X, place.Y, place.Width - 1, place.Height - 1);
         using (var fill = new SolidBrush(chosen ? Theme.AccentLight : entry == null ? Theme.Surface : Theme.Background)) g.FillRoundedRectangle(fill, outline, corner);
         using (var line = new Pen(chosen ? Theme.Accent : Theme.Line, chosen ? 2 : 1)) g.DrawRoundedRectangle(line, outline, corner);
@@ -139,7 +203,7 @@ sealed class SlotGrid : ScrollableControl
             TextRenderer.DrawText(g, T("Nv. {0}", entry.Edit.Level), Font, new Rectangle(place.X, place.Y + tile - 1, place.Width, place.Height - tile), Theme.Ink,
                 TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
         if (entry.Edit.IsShiny) TextRenderer.DrawText(g, "✦", Font, new Point(place.X + SpriteMargin, place.Y + 1), Theme.Accent, TextFormatFlags.NoPadding);
-        if (entry.Dirty)
+        if (entry.Dirty || entry.Moved)
         {
             using var dot = new SolidBrush(Theme.Accent);
             g.FillEllipse(dot, place.Right - MarkerSize - SpriteMargin - 1, place.Y + SpriteMargin, MarkerSize, MarkerSize);
@@ -169,4 +233,16 @@ sealed class SlotGrid : ScrollableControl
         OnMouseDown(new MouseEventArgs(MouseButtons.Left, 1, place.X + place.Width / 2, place.Y + place.Height / 2, 0));
     }
     internal void PressKey(Keys key) => OnKeyDown(new KeyEventArgs(key));
+
+    /// <summary>A whole drag, press to release, from one of this grid's places to one of a grid's.</summary>
+    internal void DragSlot(int from, SlotGrid target, int to, bool copy = false)
+    {
+        var start = SlotBounds(from); start.Offset(start.Width / 2, start.Height / 2);
+        OnMouseDown(new MouseEventArgs(MouseButtons.Left, 1, start.X, start.Y, 0));
+        var goal = target.SlotBounds(to); goal.Offset(goal.Width / 2, goal.Height / 2);
+        var end = PointToClient(target.PointToScreen(goal.Location));
+        OnMouseMove(new MouseEventArgs(MouseButtons.Left, 0, end.X, end.Y, 0));
+        copying = copy;
+        OnMouseUp(new MouseEventArgs(MouseButtons.Left, 1, end.X, end.Y, 0));
+    }
 }

@@ -553,6 +553,490 @@ static class AllGames
         Check(label, refused, "rechaza el set de otra especie");
     }
 
+    static void Refused(string label, Action action, string what)
+    {
+        try { action(); }
+        catch (InvalidOperationException ex) { Check(label, ex.Message.Length != 0, "explica por qué rechaza", what); return; }
+        Check(label, false, "rechaza", what);
+    }
+
+    // The level tells them apart, since a game without the species asked for repeats another.
+    static PKM Tagged(SaveFile sav, ushort species, GameVersion version, int level, int item = 0)
+    {
+        var pk = Make(sav, species, version);
+        pk.CurrentLevel = (byte)level;
+        pk.HeldItem = item;
+        pk.SetStats(pk.GetStats(pk.PersonalInfo));
+        pk.RefreshChecksum();
+        return pk;
+    }
+
+    static readonly ushort[] BoxSpecies = [25, 133, 1, 4, 7, 150, 151, 143];
+
+    static TeamIndexes8? BattleTeams(SaveFile sav) => sav switch {
+        SAV9ZA za => za.TeamIndexes, SAV9SV sv => sv.TeamIndexes, SAV8SWSH sw => sw.TeamIndexes, _ => null,
+    };
+    const int NoPointer = 1001;
+
+    // Three on the team, four in the first box, one in the second. Let's Go has no team but pointers into its list,
+    // which has no gaps: its second place is the team's and the starter's, and its fourth place the team's.
+    static string BoxSave(GameVersion version, string work, string name, Action<SaveFile, GameRules>? extra = null)
+    {
+        var sav = TestSaves.Start(version);
+        var rules = new GameRules(sav);
+        if (sav is not SAV7b)
+            for (int i = 0; i < 3; i++) sav.SetPartySlotAtIndex(Tagged(sav, BoxSpecies[i], version, 10 + i), i, EntityImportSettings.None);
+        for (int i = 0; i < 4; i++) sav.SetBoxSlotAtIndex(Tagged(sav, BoxSpecies[3 + i], version, 20 + i), i, EntityImportSettings.None);
+        sav.SetBoxSlotAtIndex(Tagged(sav, BoxSpecies[7], version, 30), sav is SAV7b ? 4 : sav.BoxSlotCount, EntityImportSettings.None);
+        if (sav is SAV7b letsGo)
+        {
+            var header = letsGo.Storage.Data;
+            int[] pointers = [1, 3, NoPointer, NoPointer, NoPointer, NoPointer, 1];
+            for (int i = 0; i < pointers.Length; i++) System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(header[(i * 2)..], (ushort)pointers[i]);
+            letsGo.Storage.Count = 5;
+        }
+        // A blank save has zeros there, which read as every battle team sitting in the first place.
+        if (BattleTeams(sav) is { } teams) { teams.ClearBattleTeams(); teams.SaveBattleTeams(); }
+        extra?.Invoke(sav, rules);
+        sav.Money = 3000;
+        var path = Path.Combine(work, $"{version}.{name}.sav");
+        File.WriteAllBytes(path, TestSaves.Finish(sav));
+        return path;
+    }
+
+    static PokemonEntry Boxed(SaveDocument doc, int level) => doc.Pokemon.Single(p => p.Edit.Level == level);
+
+    // A real write and reopen: everyone is where the document says, intact, and nobody else appeared.
+    static SaveDocument Reopened(string label, SaveDocument doc, string path, string what)
+    {
+        var error = doc.ValidateEdits();
+        Check(label, error == null, what + ": acepta los cambios", error ?? "");
+        var edited = path + "." + what.Replace(' ', '-') + ".out";
+        File.WriteAllBytes(edited, doc.BuildOutput());
+        var read = SaveDocument.Open(edited);
+        Check(label, read.Pokemon.Count == doc.Pokemon.Count, what + ": conserva cuántos hay", $"{read.Pokemon.Count} de {doc.Pokemon.Count}");
+        foreach (var e in doc.Pokemon)
+        {
+            var saved = read.At(e.Place);
+            Check(label, saved != null && saved.Original.Species == e.Original.Species && saved.Edit.Level == e.Edit.Level && saved.Original.PID == e.Preview().PID, what + ": cada uno en su lugar", e.Location);
+            if (saved == null || doc.Rules.IsGameBoy) continue;
+            Check(label, saved.Original.ChecksumValid && (e.Dirty || saved.Original.Data[..e.Original.SIZE_STORED].SequenceEqual(e.Original.Data[..e.Original.SIZE_STORED])), what + ": llega intacto", e.Location);
+        }
+        Check(label, !read.HasChanges, what + ": no queda nada pendiente");
+        return read;
+    }
+
+    static void NoGaps(string label, SaveDocument doc, string what)
+    {
+        if (doc.Save is SAV7b) Check(label, doc.Pokemon.Select(p => p.Index).Order().SequenceEqual(Enumerable.Range(0, doc.Pokemon.Count)), what + ": la lista no deja huecos");
+        if (!doc.Rules.IsGameBoy) return;
+        foreach (var box in doc.Pokemon.Where(p => !p.IsParty).GroupBy(doc.BoxOf))
+            Check(label, box.Select(p => p.Index - box.Key * doc.Save.BoxSlotCount).Order().SequenceEqual(Enumerable.Range(0, box.Count())), what + ": la caja no deja huecos");
+    }
+
+    static void TeamWithoutGaps(string label, SaveDocument doc, string what)
+    {
+        var team = doc.Pokemon.Where(p => p.IsParty).Select(p => p.Index).Order();
+        Check(label, team.SequenceEqual(Enumerable.Range(0, team.Count())), what + ": el equipo no deja huecos");
+    }
+
+    static void MovingAround(GameVersion version, string label, string work)
+    {
+        var path = BoxSave(version, work, "boxes");
+        var doc = SaveDocument.Open(path);
+        var rules = doc.Rules;
+        bool team = doc.Save.HasParty;
+        var first = Boxed(doc, 20); var third = Boxed(doc, 22); var other = Boxed(doc, 30);
+        Check(label, doc.Move(first, first.Place) == "" && !doc.HasChanges, "mover a su propio lugar no hace nada");
+        doc.Move(first, new(false, 7));
+        Check(label, doc.HasChanges && doc.BoxChangeCount != 0 && first.Moved && doc.DirtyCount == 0, "mover queda pendiente", doc.BoxChangeCount.ToString());
+        Check(label, !rules.IsGameBoy && doc.Save is not SAV7b ? first.Index == 7 : first.Index < 7, "llega a su lugar, o al final de la lista", first.Index.ToString());
+        NoGaps(label, doc, "mover");
+        doc.Move(other, third.Place);
+        Check(label, other.Place != third.Place, "intercambiar deja a cada uno en un lugar");
+        NoGaps(label, doc, "intercambiar");
+        if (team)
+        {
+            var leader = Boxed(doc, 10); var second = Boxed(doc, 11); var last = Boxed(doc, 12);
+            doc.Move(leader, last.Place);
+            Check(label, leader.Index == 2 && last.Index == 0, "cambia el orden del equipo");
+            doc.Move(first, leader.Place);
+            Check(label, first.IsParty && first.Index == 2 && !leader.IsParty, "un Pokémon de caja cambia de lugar con uno del equipo");
+            doc.Move(second, new(false, 9));
+            Check(label, !second.IsParty && doc.TeamSlots().Count(p => p != null) == 2, "un Pokémon del equipo pasa a la caja");
+            TeamWithoutGaps(label, doc, "sacar del equipo");
+            doc.Move(second, new(true, 5));
+            Check(label, second.IsParty && second.Index == 2, "un lugar vacío del equipo se llena sin huecos", second.Index.ToString());
+            TeamWithoutGaps(label, doc, "volver al equipo");
+        }
+        var read = Reopened(label, doc, path, "mover");
+        NoGaps(label, read, "mover y guardar");
+        if (read.Save is SAV7b written)
+        {
+            int partner = Boxed(doc, 21).Index, teammate = Boxed(doc, 23).Index;
+            Check(label, written.GetBoxSlotFlags(partner).HasFlag(StorageSlotSource.Starter) && written.GetBoxSlotFlags(partner).HasFlag(StorageSlotSource.Party1), "los punteros siguen al inicial", partner.ToString());
+            Check(label, written.GetBoxSlotFlags(teammate).HasFlag(StorageSlotSource.Party2), "los punteros siguen al equipo", teammate.ToString());
+            Check(label, written.Storage.Count == read.Pokemon.Count, "la lista cuenta a todos", written.Storage.Count.ToString());
+        }
+        doc.ResetLayout();
+        Check(label, !doc.HasChanges && !doc.CanUndoLayout, "deshacer todo no deja nada pendiente");
+        Check(label, doc.BuildOutput().SequenceEqual(doc.OriginalBytes), "deshacer todo deja el archivo como estaba");
+        // Moved again from the saved file, nothing depends on the first file's layout.
+        var again = Boxed(read, 22);
+        read.Move(again, read.FreePlace(0)!.Value);
+        Reopened(label, read, path, "mover otra vez");
+        Check(label, read.Pokemon.Count == doc.Pokemon.Count, "mover no cambia cuántos hay");
+    }
+
+    static void DeletingAndCloning(GameVersion version, string label, string work)
+    {
+        var path = BoxSave(version, work, "clones");
+        var doc = SaveDocument.Open(path);
+        bool team = doc.Save.HasParty;
+        var gone = Boxed(doc, 22); var source = Boxed(doc, 20);
+        var freed = gone.Place;
+        var deleted = doc.Delete(gone);
+        Check(label, deleted.Contains(gone.DisplayName) && doc.Pokemon.Count == 7 - (team ? 0 : 3) && doc.HasChanges, "borrar queda pendiente", doc.Pokemon.Count.ToString());
+        NoGaps(label, doc, "borrar");
+        Check(label, doc.At(freed) == null || doc.Rules.IsGameBoy || doc.Save is SAV7b, "un lugar borrado queda libre, o la lista lo cierra");
+        doc.UndoLayout();
+        Check(label, !doc.HasChanges && doc.BuildOutput().SequenceEqual(doc.OriginalBytes), "deshacer el borrado deja el archivo como estaba");
+        doc.Delete(gone);
+        var place = doc.FreePlace(0)!.Value;
+        var clone = doc.Clone(source, place).Entry;
+        Check(label, clone.IsNew && clone.Moved && clone.Edit.Level == 20 && !ReferenceEquals(clone.Original, source.Original), "clonar crea otro Pokémon");
+        Check(label, doc.At(clone.Place) == clone, "el clon ocupa un lugar");
+        NoGaps(label, doc, "clonar");
+        Refused(label, () => doc.Clone(source, source.Place), "clonar sobre un lugar ocupado");
+        var edited = Boxed(doc, 30);
+        if (doc.Rules.HasFriendship) edited.Edit.Friendship = 200;
+        var editedClone = doc.Clone(edited, doc.FreePlace(0)!.Value).Entry;
+        if (doc.Rules.HasFriendship) Check(label, editedClone.Original.CurrentFriendship == 200, "el clon lleva lo que estaba sin guardar");
+        if (team)
+        {
+            var member = doc.Clone(source, new(true, 5)).Entry;
+            Check(label, member.IsParty && member.Index == 3, "clonar al equipo no deja huecos", member.Index.ToString());
+            doc.Delete(Boxed(doc, 11) );
+            TeamWithoutGaps(label, doc, "borrar del equipo");
+        }
+        Reopened(label, doc, path, "borrar y clonar");
+
+        if (team)
+        {
+            var small = SaveDocument.Open(path);
+            small.Delete(Boxed(small, 10)); small.Delete(Boxed(small, 11));
+            Refused(label, () => small.Delete(Boxed(small, 12)), "borrar al último del equipo");
+            Refused(label, () => small.Move(Boxed(small, 12), new(false, 7)), "dejar el equipo vacío");
+            Check(label, small.TeamSlots()[0] == Boxed(small, 12), "el rechazo deja el equipo como estaba");
+            Reopened(label, small, path, "equipo de uno");
+        }
+        doc = SaveDocument.Open(path);
+        Check(label, doc.FreePlace(doc.BoxCount - 1) is { Index: var wrap } && wrap >= (doc.BoxCount - 1) * doc.Save.BoxSlotCount, "busca lugar desde la caja pedida", doc.FreePlace(doc.BoxCount - 1).ToString());
+    }
+
+    static void Sorting(GameVersion version, string label, string work)
+    {
+        var path = BoxSave(version, work, "sorted");
+        var doc = SaveDocument.Open(path);
+        doc.SortBox(0, BoxOrder.Level);
+        var levels = doc.BoxSlots(0).OfType<PokemonEntry>().Where(p => doc.Save is not SAV7b || p.Edit.Level != 21).Select(p => p.Edit.Level).ToList();
+        Check(label, levels.SequenceEqual(levels.OrderDescending()) && doc.HasChanges, "ordena por nivel", string.Join(' ', levels));
+        if (doc.Save is SAV7b) Check(label, Boxed(doc, 21).Index == 1, "el inicial no se mueve de la lista");
+        NoGaps(label, doc, "ordenar");
+        var read = Reopened(label, doc, path, "ordenar");
+        read.SortBox(0, BoxOrder.Pokedex);
+        var species = read.BoxSlots(0).OfType<PokemonEntry>().Where(p => read.Save is not SAV7b || p.Edit.Level != 21).Select(p => (int)p.Original.Species).ToList();
+        Check(label, species.SequenceEqual(species.Order()), "ordena por Pokédex", string.Join(' ', species));
+        read = Reopened(label, read, path, "ordenar por pokedex");
+        read.SortBox(0, BoxOrder.Name);
+        var names = read.BoxSlots(0).OfType<PokemonEntry>().Where(p => read.Save is not SAV7b || p.Edit.Level != 21).Select(p => p.DisplayName).ToList();
+        Check(label, names.SequenceEqual(names.Order(StringComparer.CurrentCultureIgnoreCase)), "ordena por nombre", string.Join(' ', names));
+        Reopened(label, read, path, "ordenar por nombre");
+        var same = SaveDocument.Open(path);
+        same.SortBox(same.BoxCount - 1, BoxOrder.Level);
+        Check(label, !same.HasChanges && !same.CanUndoLayout, "ordenar una caja vacía no cambia nada");
+    }
+
+    static void HeldItems(GameVersion version, string label, string work)
+    {
+        var path = BoxSave(version, work, "items");
+        var doc = SaveDocument.Open(path);
+        var rules = doc.Rules;
+        var item = rules.HasHeldItems ? doc.Items.FirstOrDefault(i => rules.CanHold(i.Id) && !doc.IsUniqueHeldItem(i.Id) && !rules.IsMail(i.Id) && i.MaxCount >= 3) : null;
+        if (item == null) return;
+        var holder = Boxed(doc, 20);
+        doc.SetItemCount(item.Id, 3);
+        doc.EquipItem(holder, item.Id);
+        Check(label, doc.GetItemCount(item.Id) == 2, "equipar toma una unidad", doc.GetItemCount(item.Id).ToString());
+        var clone = doc.Clone(holder, doc.FreePlace(0)!.Value).Entry;
+        Check(label, clone.Edit.HeldItem == item.Id && doc.GetItemCount(item.Id) == 1, "el clon toma su propia unidad", doc.GetItemCount(item.Id).ToString());
+        doc.UndoLayout();
+        Check(label, doc.GetItemCount(item.Id) == 2, "deshacer el clon devuelve su unidad", doc.GetItemCount(item.Id).ToString());
+        clone = doc.Clone(holder, doc.FreePlace(0)!.Value).Entry;
+        var saved = Reopened(label, doc, path, "clonar con objeto");
+        Check(label, saved.At(clone.Place)!.Original.HeldItem == item.Id && saved.At(holder.Place)!.Original.HeldItem == item.Id, "los dos llevan su objeto");
+        Check(label, saved.GetItemCount(item.Id) == 1, "la bolsa cuenta el objeto del clon", saved.GetItemCount(item.Id).ToString());
+
+        var returning = saved.At(holder.Place)!;
+        string message = saved.Delete(returning);
+        Check(label, message.Contains(rules.ItemName(item.Id)) && saved.GetItemCount(item.Id) == 2, "borrar devuelve el objeto a la bolsa", message);
+        saved.UndoLayout();
+        Check(label, saved.GetItemCount(item.Id) == 1 && !saved.HasChanges, "deshacer el borrado vuelve a equiparlo", saved.GetItemCount(item.Id).ToString());
+        saved.Delete(returning);
+        var after = Reopened(label, saved, path, "borrar con objeto");
+        Check(label, after.GetItemCount(item.Id) == 2, "el objeto del borrado se guarda en la bolsa", after.GetItemCount(item.Id).ToString());
+
+        var again = after.Pokemon.First(p => p.Edit.HeldItem == item.Id);
+        after.SetItemCount(item.Id, 0);
+        var plain = after.Clone(again, after.FreePlace(0)!.Value);
+        Check(label, plain.Entry.Edit.HeldItem == 0 && plain.Message.Contains(rules.ItemName(item.Id)), "sin unidades el clon llega sin objeto y lo dice", plain.Message);
+        after.SetItemCount(item.Id, item.MaxCount);
+        Refused(label, () => after.Delete(again), "borrar si la bolsa no tiene espacio para su objeto");
+        Check(label, after.Pokemon.Contains(again), "el rechazo conserva al Pokémon");
+        after.SetItemCount(item.Id, 0);
+        after.Delete(again);
+        after.SetItemCount(item.Id, 0);
+        // The unit that came back has gone, so the Pokémon can't take it again.
+        Refused(label, () => after.UndoLayout(), "deshacer si su objeto ya no está");
+        Check(label, !after.Pokemon.Contains(again), "el rechazo no recupera al Pokémon sin su objeto");
+    }
+
+    // Each format, once. Whatever comes in is converted or clearly refused, never half done.
+    static readonly Dictionary<string, string> Files = [];
+    static readonly GameVersion[] FileGames = [GameVersion.RD, GameVersion.C, GameVersion.E, GameVersion.Pt, GameVersion.B2, GameVersion.OR, GameVersion.US, GameVersion.GP,
+        GameVersion.SW, GameVersion.BD, GameVersion.PLA, GameVersion.SL, GameVersion.ZA];
+
+    static string SourceFile(GameVersion game, string work)
+    {
+        if (Files.TryGetValue(game + work, out var path)) return path;
+        var sav = TestSaves.Start(game);
+        var entry = Entry(sav, new GameRules(sav), 25, game);
+        path = Path.Combine(work, $"{game}.source.{entry.Original.Extension}");
+        File.WriteAllBytes(path, SaveDocument.PokemonFile(entry));
+        return Files[game + work] = path;
+    }
+
+    static void PokemonFiles(GameVersion version, string label, string work)
+    {
+        var path = BoxSave(version, work, "files");
+        var doc = SaveDocument.Open(path);
+        var rules = doc.Rules;
+        var pick = Boxed(doc, 23);
+        pick.Edit.Friendship = rules.HasFriendship ? 123 : pick.Edit.Friendship;
+        var file = Path.Combine(work, SaveDocument.PokemonFileName(pick));
+        Check(label, Path.GetExtension(file) == "." + doc.Save.PKMType.Name.ToLowerInvariant(), "exporta con la extensión del juego", file);
+        File.WriteAllBytes(file, SaveDocument.PokemonFile(pick));
+        var place = doc.FreePlace(0)!.Value;
+        var came = doc.Import(file, place);
+        Check(label, came.Message.Contains(came.Entry.DisplayName) && came.Entry.IsNew && came.Entry.Original.ChecksumValid, "importa su propio archivo", came.Message);
+        Check(label, came.Entry.Edit.Level == 23 && came.Entry.Original.PID == pick.Preview().PID && came.Entry.Original.Species == pick.Original.Species, "el archivo conserva al Pokémon");
+        if (rules.HasFriendship) Check(label, came.Entry.Original.CurrentFriendship == 123, "el archivo lleva lo que estaba sin guardar", came.Entry.Original.CurrentFriendship.ToString());
+        NoGaps(label, doc, "importar");
+        Refused(label, () => doc.Import(file, pick.Place), "importar sobre un lugar ocupado");
+        var junk = Path.Combine(work, "basura.pk3"); File.WriteAllBytes(junk, new byte[17]);
+        Refused(label, () => doc.Import(junk, doc.FreePlace(0)!.Value), "importar un archivo que no es un Pokémon");
+        Refused(label, () => doc.Import(Path.Combine(work, "no-existe.pk3"), doc.FreePlace(0)!.Value), "importar un archivo que no existe");
+        var zeros = Path.Combine(work, "ceros.pk7"); File.WriteAllBytes(zeros, new byte[232]);
+        Refused(label, () => doc.Import(zeros, doc.FreePlace(0)!.Value), "importar un archivo vacío");
+        if (doc.Save.HasParty)
+        {
+            var member = doc.Import(file, new(true, 4)).Entry;
+            Check(label, member.Index == 3 && member.Preview().PartyStatsPresent, "importar al equipo no deja huecos", member.Index.ToString());
+        }
+        Reopened(label, doc, path, "importar");
+
+        // Every format into this game.
+        var mixed = SaveDocument.Open(path);
+        int imported = 0;
+        foreach (var game in FileGames.Append(version))
+        {
+            var source = SourceFile(game, work);
+            try
+            {
+                var entry = mixed.Import(source, mixed.FreePlace(0)!.Value).Entry;
+                imported++;
+                Check(label, entry.Original.GetType() == mixed.Save.PKMType && entry.Original.ChecksumValid && entry.Original.Species != 0, "convierte al formato del juego", source);
+                Check(label, entry.Original.PartyStatsPresent, "el convertido tiene sus estadísticas", source);
+            }
+            catch (InvalidOperationException ex) { Check(label, ex.Message.Length != 0, "explica por qué no convierte", source); }
+        }
+        Check(label, imported != 0, "convierte al menos su propio formato");
+        Reopened(label, mixed, path, "importar de otros juegos");
+        var older = SourceFile(GameVersion.E, work);
+        if (rules.Generation is >= 4 and <= 7 && rules.Context != EntityContext.Gen7b)
+            Check(label, SaveDocument.Open(path).Import(older, new(false, 8)).Entry.Original.Generation == 3, "sube un Pokémon de un juego anterior");
+        if (rules.Generation == 3) Refused(label, () => SaveDocument.Open(path).Import(SourceFile(GameVersion.ZA, work), new(false, 8)), "no baja un Pokémon de Z-A a Gen 3");
+        if (rules.IsGameBoy)
+        {
+            // Azul only ever came out in Japan, so what doesn't belong there is the rest of the world's.
+            bool foreign = !doc.Save.BlankPKM.Japanese;
+            var stranger = rules.Generation == 1 ? (PKM)new PK1(foreign) { Species = 25, CurrentLevel = 5 } : new PK2(foreign) { Species = 25, CurrentLevel = 5 };
+            var strangerFile = Path.Combine(work, $"otro-idioma.{version}.{stranger.Extension}");
+            var data = new byte[stranger.SIZE_PARTY]; stranger.WriteDecryptedDataParty(data); File.WriteAllBytes(strangerFile, data);
+            Refused(label, () => SaveDocument.Open(path).Import(strangerFile, new(false, 8)), "no mezcla partidas japonesas de Game Boy");
+        }
+    }
+
+    static int boxesClosedTried;
+
+    static int BoxesOpen(SaveFile sav)
+    {
+        try { return sav.BoxesUnlocked; }
+        catch (Exception e) when (e is ArgumentException or InvalidCastException) { return -1; }
+    }
+
+    static void StayingPut(GameVersion version, string label, string work)
+    {
+        // A team kept in the boxes: its Pokémon can't be moved or lost from under it.
+        var path = BoxSave(version, work, "pinned", (sav, _) => {
+            if (BattleTeams(sav) is { } teams) { teams.TeamSlots[0] = 1; teams.SaveBattleTeams(); }
+        });
+        var doc = SaveDocument.Open(path);
+        if (doc.Save is SAV9ZA or SAV9SV or SAV8SWSH or SAV7b)
+        {
+            var kept = Boxed(doc, 21);
+            Check(label, doc.Save.IsBoxSlotOverwriteProtected(kept.Index), "el juego protege ese lugar");
+            Refused(label, () => doc.Move(kept, new(false, 9)), "mover a un Pokémon protegido");
+            Refused(label, () => doc.Delete(kept), "borrar a un Pokémon protegido");
+            Refused(label, () => doc.Move(Boxed(doc, 20), kept.Place), "cambiar de lugar con uno protegido");
+            doc.SortBox(0, BoxOrder.Level);
+            Check(label, kept.Index == 1, "ordenar no lo mueve", kept.Index.ToString());
+            var clone = doc.Clone(kept, doc.FreePlace(0)!.Value).Entry;
+            Check(label, clone.IsNew, "se puede clonar a un Pokémon protegido");
+            Reopened(label, doc, path, "protegido");
+        }
+        var narrow = BoxSave(version, work, "closed", (sav, _) => {
+            try { sav.BoxesUnlocked = 2; } catch (Exception e) when (e is ArgumentException or InvalidCastException or KeyNotFoundException) { }
+        });
+        var closed = SaveDocument.Open(narrow);
+        if (BoxesOpen(closed.Save) == 2)
+        {
+            boxesClosedTried++;
+            var place = new SlotPlace(false, closed.Save.BoxSlotCount * 2 + 1);
+            Refused(label, () => closed.Move(Boxed(closed, 20), place), "mover a una caja que el juego no ha abierto");
+            Refused(label, () => closed.Clone(Boxed(closed, 20), place), "clonar a una caja que el juego no ha abierto");
+            Check(label, closed.FreePlace(1)!.Value.Index < closed.Save.BoxSlotCount * 2, "busca lugar solo en las cajas abiertas");
+            Check(label, closed.FreePlace(30 % closed.BoxCount)!.Value.Index < closed.Save.BoxSlotCount * 2, "desde una caja cerrada vuelve a las abiertas");
+        }
+
+        if (doc.Save is SAV7b)
+        {
+            var fresh = SaveDocument.Open(path);
+            Refused(label, () => fresh.Delete(Boxed(fresh, 23)), "borrar a uno del equipo de Let's Go");
+            Refused(label, () => fresh.Move(Boxed(fresh, 20), new(true, 0)), "Let's Go no tiene lugares de equipo");
+        }
+
+        if (doc.Rules.Generation >= 3 && doc.Save.HasParty)
+        {
+            var eggs = BoxSave(version, work, "eggs", (sav, _) => {
+                foreach (int i in new[] { 1, 2 })
+                {
+                    var egg = sav.GetPartySlotAtIndex(i);
+                    egg.IsEgg = true; egg.RefreshChecksum();
+                    sav.SetPartySlotAtIndex(egg, i, EntityImportSettings.None);
+                }
+            });
+            var hatched = SaveDocument.Open(eggs);
+            Check(label, hatched.Pokemon.Count(p => p.Original.IsEgg) == 2, "lee los huevos del equipo");
+            Refused(label, () => hatched.Delete(Boxed(hatched, 10)), "dejar un equipo solo de huevos");
+            Refused(label, () => hatched.Move(Boxed(hatched, 10), new(false, 7)), "sacar al único que no es un huevo");
+            hatched.Move(Boxed(hatched, 20), Boxed(hatched, 11).Place);
+            hatched.Delete(Boxed(hatched, 10));
+            Reopened(label, hatched, eggs, "huevos");
+        }
+
+        if (doc.Rules.Generation is >= 2 and <= 5)
+        {
+            int mail = Enumerable.Range(1, 400).First(doc.Rules.IsMail);
+            var letters = BoxSave(version, work, "mail", (sav, _) => sav.SetPartySlotAtIndex(Tagged(sav, 25, version, 12, mail), 2, EntityImportSettings.None));
+            var writing = SaveDocument.Open(letters);
+            var postman = Boxed(writing, 12);
+            Check(label, postman.Edit.HeldItem == mail, "lee la carta", postman.Edit.HeldItem.ToString());
+            Refused(label, () => writing.Move(postman, new(false, 7)), "mover a quien lleva una carta");
+            Refused(label, () => writing.Delete(postman), "borrar a quien lleva una carta");
+            Refused(label, () => writing.Clone(postman, new(false, 7)), "clonar a quien lleva una carta");
+        }
+    }
+
+    // A write that came out wrong has to be caught: one that changes a place nobody asked for, loses a move, or touches other data.
+    static void CatchingMistakes(GameVersion version, string label, string work)
+    {
+        var path = BoxSave(version, work, "tamper");
+        var doc = SaveDocument.Open(path);
+        var moved = Boxed(doc, 20);
+        var destination = doc.FreePlace(0)!.Value;
+        doc.Move(moved, destination);
+        var bytes = doc.BuildOutput();
+        SaveFile Tampered() => SaveUtil.GetSaveFile(bytes.ToArray(), path)!;
+        var clean = Tampered();
+        doc.VerifyStorage(clean);
+        Check(label, true, "lo escrito pasa la verificación");
+        var stranger = Tagged(clean, 25, version, 44);
+        var second = Tampered(); second.SetBoxSlotAtIndex(stranger, doc.BoxCount * doc.Save.BoxSlotCount - 1, EntityImportSettings.None);
+        Refused(label, () => doc.VerifyStorage(second), "detecta a alguien en un lugar vacío ajeno");
+        var third = Tampered(); third.SetBoxSlotAtIndex(stranger, Boxed(doc, 22).Index, EntityImportSettings.None);
+        Refused(label, () => doc.VerifyStorage(third), "detecta otro Pokémon en un lugar que no cambió");
+        var fourth = Tampered(); fourth.SetBoxSlotAtIndex(fourth.BlankPKM, moved.Index, EntityImportSettings.None);
+        Refused(label, () => doc.VerifyStorage(fourth), "detecta un Pokémon perdido por el camino");
+        if (doc.Save.HasParty)
+        {
+            var fifth = Tampered(); fifth.SetPartySlotAtIndex(stranger, 2, EntityImportSettings.None);
+            Refused(label, () => doc.VerifyStorage(fifth), "detecta un cambio en el equipo");
+            var sixth = Tampered(); sixth.SetPartySlotAtIndex(stranger, 3, EntityImportSettings.None);
+            Refused(label, () => doc.VerifyStorage(sixth), "detecta a alguien de más en el equipo");
+        }
+        if (doc.Save is SAV7b)
+        {
+            var seventh = (SAV7b)Tampered(); seventh.Storage.Count = 3;
+            Refused(label, () => doc.VerifyStorage(seventh), "detecta una lista mal contada");
+        }
+        if (Tampered() is SAV9ZA za)
+        {
+            doc.VerifyBlocks(za);
+            za.TeamIndexes.SetIsTeamLocked(0, true);
+            Refused(label, () => doc.VerifyBlocks(za), "detecta un cambio en otro bloque de la partida");
+            var footer = (SAV9ZA)Tampered(); footer.BoxInfo.Data[footer.SIZE_BOXSLOT * 3 + footer.SIZE_PARTY] ^= 1;
+            Refused(label, () => doc.VerifyStorage(footer), "detecta un cambio junto a un Pokémon que no se movió");
+            var mega = SaveDocument.Open(path);
+            var holder = Boxed(mega, 22);
+            mega.SetItemCount(658, 1); mega.EquipItem(holder, 658);
+            Refused(label, () => mega.Clone(holder, mega.FreePlace(0)!.Value), "no clona a quien lleva una megapiedra");
+            mega.SetItemCount(534, 1); mega.EquipItem(Boxed(mega, 23), 534);
+            Refused(label, () => mega.Clone(Boxed(mega, 23), mega.FreePlace(0)!.Value), "no clona a quien lleva un orbe");
+            var kept = Reopened(label, mega, path, "megapiedra");
+            Check(label, kept.ZaSave!.Items.GetItem(658).IsHeld, "la megapiedra queda asignada");
+            kept.Delete(Boxed(kept, 22));
+            var freed = Reopened(label, kept, path, "borrar megapiedra");
+            Check(label, !freed.ZaSave!.Items.GetItem(658).IsHeld && freed.GetItemCount(658) == 1 && !freed.IsItemHeld(658), "borrar a quien la lleva la deja libre en la bolsa");
+            freed.EquipItem(Boxed(freed, 20), 658);
+            Reopened(label, freed, path, "reasignar megapiedra");
+        }
+
+        // The whole writer, backup and change log included, on a throwaway copy.
+        var copy = Path.Combine(work, version + ".boxes.copy.sav");
+        File.Copy(path, copy, true);
+        var writer = SaveDocument.Open(copy);
+        writer.Move(Boxed(writer, 20), writer.FreePlace(0)!.Value);
+        writer.Delete(Boxed(writer, 22));
+        writer.Clone(Boxed(writer, 23), writer.FreePlace(0)!.Value);
+        var backup = writer.Write(copy, Path.Combine(work, "Backups"), _ => null);
+        var log = File.ReadAllText(Path.Combine(backup, "cambios.json"));
+        Check(label, log.Contains("\"moved\"") && log.Contains("\"added\"") && log.Contains("\"removed\""), "el registro del respaldo cuenta los cambios de cajas");
+        Check(label, File.ReadAllBytes(Path.Combine(backup, Path.GetFileName(copy) + ".original")).SequenceEqual(File.ReadAllBytes(path)), "el respaldo conserva el archivo anterior");
+        Check(label, SaveDocument.Open(copy).Pokemon.Count == writer.Pokemon.Count, "el guardado real aplica los cambios de cajas");
+    }
+
+    static void BoxTools(GameVersion version, string label, string work)
+    {
+        MovingAround(version, label, work);
+        DeletingAndCloning(version, label, work);
+        Sorting(version, label, work);
+        HeldItems(version, label, work);
+        PokemonFiles(version, label, work);
+        StayingPut(version, label, work);
+        CatchingMistakes(version, label, work);
+    }
+
     static void LanguageSwitch(GameVersion version, string label, string work)
     {
         var doc = SaveDocument.Open(Path.Combine(work, version + ".sav"));
@@ -677,6 +1161,124 @@ static class AllGames
         Console.WriteLine($"{rows.Count} formas");
     }
 
+    // The bytes of a real Z-A save, not just what they read as: only the places involved may differ, and only as the game keeps them.
+    static List<int> DifferentSlots(Span<byte> before, Span<byte> after, int size)
+    {
+        var different = new List<int>();
+        for (int i = 0; i * size < before.Length; i++)
+            if (!before.Slice(i * size, size).SequenceEqual(after.Slice(i * size, size))) different.Add(i);
+        return different;
+    }
+
+    static SAV9ZA Written(SaveDocument doc, string work, string name)
+    {
+        var path = Path.Combine(work, "real." + name);
+        File.WriteAllBytes(path, doc.BuildOutput());
+        return SaveDocument.Open(path).ZaSave!;
+    }
+
+    /// <summary>Box operations on a played Z-A save, for any such save. Works on copies in memory and in the work folder.</summary>
+    public static void RealSave(string source, string work)
+    {
+        const string label = "partida real";
+        Directory.CreateDirectory(work);
+        string hash = SaveDocument.Hash(File.ReadAllBytes(source));
+        var doc = SaveDocument.Open(source);
+        var save = doc.ZaSave!;
+        int slot = save.SIZE_BOXSLOT, teamSlot = Party9a.SlotSize;
+        var boxes = save.BoxInfo.Data.ToArray(); var party = save.PartyInfo.Data.ToArray();
+        int count = doc.Pokemon.Count, teamCount = save.PartyCount;
+        var first = doc.Pokemon.First(p => !p.IsParty);
+        int empty = doc.FreePlace(0)!.Value.Index, origin = first.Index;
+
+        doc.Move(first, new(false, empty));
+        var moved = Written(doc, work, "moved");
+        var changed = DifferentSlots(boxes, moved.BoxInfo.Data, slot);
+        Check(label, changed.Order().SequenceEqual(new[] { origin, empty }.Order()), "mover cambia solo sus dos lugares", string.Join(',', changed));
+        Check(label, DifferentSlots(party, moved.PartyInfo.Data, teamSlot).Count == 0, "mover en las cajas no toca el equipo");
+        Check(label, moved.BoxInfo.Data.Slice(origin * slot, slot).SequenceEqual(boxes.AsSpan(empty * slot, slot)), "el lugar liberado queda igual que uno vacío del juego");
+        Check(label, moved.BoxInfo.Data.Slice(empty * slot, save.SIZE_PARTY).SequenceEqual(boxes.AsSpan(origin * slot, save.SIZE_PARTY)), "el Pokémon llega byte por byte");
+        doc.UndoLayout();
+        Check(label, SaveDocument.Hash(doc.BuildOutput()) == hash, "deshacer deja la partida idéntica");
+        if (save.BoxesUnlocked < save.BoxCount)
+        {
+            Refused(label, () => doc.Move(first, new(false, save.BoxesUnlocked * save.BoxSlotCount)), "mover a una caja que el juego no ha abierto");
+            Check(label, doc.FreePlace(save.BoxCount - 1)!.Value.Index < save.BoxesUnlocked * save.BoxSlotCount, "busca lugar solo en las cajas abiertas");
+        }
+
+        var leader = doc.TeamSlots()[0]!;
+        doc.Move(first, leader.Place);
+        var swapped = Written(doc, work, "swapped");
+        Check(label, DifferentSlots(party, swapped.PartyInfo.Data, teamSlot).SequenceEqual([0]), "cambiar con el equipo toca solo ese lugar del equipo");
+        Check(label, DifferentSlots(boxes, swapped.BoxInfo.Data, slot).SequenceEqual([origin]), "cambiar con el equipo toca solo ese lugar de la caja");
+        Check(label, swapped.PartyCount == teamCount && swapped.PartyInfo.Data.Slice(0, save.SIZE_PARTY).SequenceEqual(boxes.AsSpan(origin * slot, save.SIZE_PARTY)), "el de la caja llega al equipo byte por byte");
+        doc.UndoLayout();
+
+        if (teamCount > 1)
+        {
+            doc.Delete(doc.TeamSlots()[0]!);
+            var shorter = Written(doc, work, "shorter");
+            Check(label, shorter.PartyCount == teamCount - 1, "borrar acorta el equipo", shorter.PartyCount.ToString());
+            for (int i = 0; i < teamCount - 1; i++)
+                Check(label, shorter.PartyInfo.GetSlot(i).Span.SequenceEqual(party.AsSpan((i + 1) * teamSlot, teamSlot)), "los demás suben un lugar byte por byte", i.ToString());
+            Check(label, shorter.GetPartySlotAtIndex(teamCount - 1).Species == 0, "el último lugar queda vacío");
+            Check(label, DifferentSlots(boxes, shorter.BoxInfo.Data, slot).Count == 0, "borrar del equipo no toca las cajas");
+            doc.UndoLayout();
+        }
+
+        var clone = doc.Clone(first, new(false, empty)).Entry;
+        var cloned = Written(doc, work, "cloned");
+        Check(label, DifferentSlots(boxes, cloned.BoxInfo.Data, slot).SequenceEqual([empty]), "clonar toca solo el lugar nuevo");
+        Check(label, cloned.GetBoxSlotAtIndex(empty).PID == first.Original.PID, "el clon es el mismo Pokémon");
+        doc.UndoLayout();
+
+        doc.Delete(first);
+        var deleted = Written(doc, work, "deleted");
+        Check(label, DifferentSlots(boxes, deleted.BoxInfo.Data, slot).SequenceEqual([origin]), "borrar toca solo su lugar");
+        Check(label, deleted.BoxInfo.Data.Slice(origin * slot, slot).SequenceEqual(boxes.AsSpan(empty * slot, slot)), "lo borrado queda igual que un lugar vacío del juego");
+        Check(label, SaveDocument.Open(Path.Combine(work, "real.deleted")).Pokemon.Count == count - 1, "borrar quita a uno");
+        doc.UndoLayout();
+
+        var file = Path.Combine(work, "real." + first.Original.Extension);
+        File.WriteAllBytes(file, SaveDocument.PokemonFile(first));
+        var imported = doc.Import(file, new(false, empty)).Entry;
+        Check(label, imported.Original.Data.SequenceEqual(first.Original.Data) || imported.Original.Data[..first.Original.SIZE_STORED].SequenceEqual(first.Original.Data[..first.Original.SIZE_STORED]), "un archivo trae al Pokémon entero");
+        var withImport = Written(doc, work, "imported");
+        Check(label, DifferentSlots(boxes, withImport.BoxInfo.Data, slot).SequenceEqual([empty]), "importar toca solo su lugar");
+        doc.ResetLayout();
+
+        if (doc.Pokemon.Count(p => !p.IsParty && doc.BoxOf(p) == 0) > 1)
+        {
+            doc.SortBox(0, BoxOrder.Pokedex);
+            var sorted = Written(doc, work, "sorted");
+            Check(label, DifferentSlots(boxes, sorted.BoxInfo.Data, slot).All(i => i < save.BoxSlotCount), "ordenar toca solo esa caja");
+            doc.ResetLayout();
+        }
+        Check(label, !doc.HasChanges && SaveDocument.Hash(doc.BuildOutput()) == hash, "deshecho todo, la partida queda idéntica");
+        Check(label, SaveDocument.Hash(File.ReadAllBytes(source)) == hash, "el archivo de origen no se toca");
+        Console.WriteLine();
+        foreach (var f in failures) Console.WriteLine("  " + f);
+        Console.WriteLine($"RESULTADO: {count} Pokémon, {passed} comprobaciones correctas, {failed} fallidas");
+        Environment.ExitCode = failed == 0 ? 0 : 1;
+    }
+
+    /// <summary>Only the box tools, in every game: the quick way to see those alone.</summary>
+    public static void RunBoxes(string work, string? only = null)
+    {
+        Directory.CreateDirectory(work);
+        foreach (var (game, label) in Games.Where(g => only == null || g.Label == only))
+        {
+            int before = failed;
+            try { BoxTools(game, label, work); }
+            catch (Exception ex) { failed++; failures.Add($"{label}: {ex.GetType().Name}: {ex.Message.Split('\n')[0]}  {ex.StackTrace?.Split('\n').FirstOrDefault()?.Trim()}"); }
+            Console.WriteLine($"{(failed == before ? "ok   " : "FALLA")} {label}");
+        }
+        Console.WriteLine();
+        foreach (var f in failures) Console.WriteLine("  " + f);
+        Console.WriteLine($"\nRESULTADO: {Games.Length} juegos, {boxesClosedTried} con cajas cerradas, {passed} comprobaciones correctas, {failed} fallidas");
+        Environment.ExitCode = failed == 0 ? 0 : 1;
+    }
+
     public static void Run(string work)
     {
         // Colosseum and XD are left out: their saves live in an encrypted GameCube container
@@ -685,7 +1287,7 @@ static class AllGames
         foreach (var (game, label) in Games)
         {
             int before = failed;
-            try { Run(game, label, work); FormsOnDisk(game, label, work); StuckForms(game, label); Abilities(game, label, work); Details(game, label, work); AbilityWithForms(game, label); LanguageSwitch(game, label, work); InEveryLanguage(game, label, work); }
+            try { Run(game, label, work); FormsOnDisk(game, label, work); StuckForms(game, label); Abilities(game, label, work); Details(game, label, work); BoxTools(game, label, work); AbilityWithForms(game, label); LanguageSwitch(game, label, work); InEveryLanguage(game, label, work); }
             catch (Exception ex) { failed++; failures.Add($"{label}: {ex.GetType().Name}: {ex.Message.Split('\n')[0]}  {ex.StackTrace?.Split('\n').FirstOrDefault()?.Trim()}"); }
             Console.WriteLine($"{(failed == before ? "ok   " : "FALLA")} {label}");
         }

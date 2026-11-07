@@ -7,6 +7,16 @@ if (args[0] == "--all-games")
     AllGames.Run(args[1]);
     return;
 }
+if (args[0] == "--boxes")
+{
+    AllGames.RunBoxes(args[1], args.ElementAtOrDefault(2));
+    return;
+}
+if (args[0] == "--box-save")
+{
+    AllGames.RealSave(Path.GetFullPath(args[1]), Path.GetFullPath(args[2]));
+    return;
+}
 if (args[0] == "--strings")
 {
     AllGames.CheckStrings(args[1]);
@@ -247,3 +257,4 @@ Reject(() => SaveDocument.Open(copy), "Rejects corrupted input save");
 Check(SaveDocument.Hash(File.ReadAllBytes(source)) == protectedHash, "User's real save remains untouched by tests");
 File.WriteAllText(Path.Combine(work, "results.txt"), string.Join(Environment.NewLine, results));
 Console.WriteLine($"{results.Count} checks passed.");
+AllGames.RealSave(source, Path.Combine(work, "boxes"));
