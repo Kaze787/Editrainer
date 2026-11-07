@@ -1556,6 +1556,177 @@ static class AllGames
         }
     }
 
+    // Sees every web request the process makes, which here has to be none.
+    sealed class WebWatch : IObserver<System.Diagnostics.DiagnosticListener>, IObserver<KeyValuePair<string, object?>>
+    {
+        public int Requests;
+        public void OnCompleted() { }
+        public void OnError(Exception error) { }
+        public void OnNext(System.Diagnostics.DiagnosticListener listener) { if (listener.Name == "HttpHandlerDiagnosticListener") listener.Subscribe(this); }
+        public void OnNext(KeyValuePair<string, object?> e) { if (e.Key.EndsWith(".Start", StringComparison.Ordinal)) Interlocked.Increment(ref Requests); }
+    }
+
+    static readonly WebWatch web = new();
+    static readonly IDisposable webWatch = System.Diagnostics.DiagnosticListener.AllListeners.Subscribe(web);
+    static readonly bool watchWorks = SeesRequests();
+    static readonly string[] EnglishSpecies = GameInfo.GetStrings("en").specieslist, EnglishMoves = GameInfo.GetStrings("en").movelist;
+
+    // The watch has to prove it sees a request, against nothing outside this machine.
+    static bool SeesRequests()
+    {
+        using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(3) };
+        try { client.GetAsync("http://127.0.0.1:9/").GetAwaiter().GetResult(); }
+        catch (Exception e) when (e is HttpRequestException or TaskCanceledException) { }
+        return Interlocked.Exchange(ref web.Requests, 0) != 0;
+    }
+
+    static string EnglishName(ushort species) => EnglishSpecies[species].Replace("♀", "-F").Replace("♂", "-M");
+
+    // Blue's test saves are Japanese, and a Japanese trainer can't spell the name the others use.
+    static SaveDocument GeneratorSave(GameVersion version, string work)
+    {
+        var path = BoxSave(version, work, "generated", (sav, _) => { if (sav.OT.Length == 0) sav.OT = "サトシ"; });
+        return SaveDocument.Open(path);
+    }
+
+    // A set and a small living Pokédex, from the engine to a file and back.
+    static void Generation(GameVersion version, string label, string work)
+    {
+        var doc = GeneratorSave(version, work);
+        var rules = doc.Rules;
+        var generator = new LegalGenerator(doc);
+        Check(label, !doc.HasChanges && doc.BuildOutput().SequenceEqual(doc.OriginalBytes), "preparar el generador no cambia nada");
+        Check(label, generator.DexSpecies.Count > 100 || rules.Context is EntityContext.Gen7b, "conoce las especies del juego", generator.DexSpecies.Count.ToString());
+        Check(label, generator.DexSpecies.All(s => s >= 1 && s <= rules.Personal.MaxSpeciesID), "solo pide especies del juego");
+        Refused(label, () => generator.FromSet("esto no es un set"), "un texto que no es un set");
+        ushort species = SpeciesFor(doc.Save, 25);
+        Refused(label, () => generator.FromSet($"{EnglishName(species)}\nNo Es Una Linea Conocida"), "un set con una línea desconocida");
+        var absent = Enumerable.Range(1, EnglishSpecies.Length - 1).Select(s => (ushort)s).Where(s => EnglishSpecies[s].Length != 0 && !generator.DexSpecies.Contains(s)).ToList();
+        if (absent.Count != 0) Refused(label, () => generator.FromSet(EnglishName(absent[0])), "una especie que el juego no tiene");
+
+        // A plain set, then one that names the level and the moves the first one came with.
+        var plain = generator.FromSet(EnglishName(species));
+        Check(label, plain.Pokemon != null, "genera un Pokémon desde un set", plain.Problem ?? "");
+        if (plain.Pokemon == null) return;
+        Check(label, plain.Pokemon.Species == species && plain.Pokemon.GetType() == doc.Save.BlankPKM.GetType(), "genera en el formato de la partida", plain.Pokemon.GetType().Name);
+        Check(label, plain.Pokemon.OriginalTrainerName == doc.Save.OT && plain.Pokemon.ID32 == doc.Save.ID32, "el Pokémon es del entrenador de la partida", plain.Pokemon.OriginalTrainerName);
+        var sized = generator.FromSet($"{EnglishName(species)}\nLevel: 50");
+        Check(label, sized.Pokemon?.CurrentLevel == 50, "respeta el nivel del set", sized.Problem ?? sized.Pokemon?.CurrentLevel.ToString() ?? "");
+        // Legends: Arceus leaves no move slot empty while a Pokémon knows more, so two would be refused there.
+        var moves = (sized.Pokemon ?? plain.Pokemon).Moves.Where(m => m != 0).Take(rules.Context == EntityContext.Gen8a ? 4 : 2).ToList();
+        var detailed = generator.FromSet($"{EnglishName(species)}\nLevel: 50\n{string.Join("\n", moves.Select(m => "- " + EnglishMoves[m]))}");
+        Check(label, detailed.Pokemon?.Moves.Where(m => m != 0).Take(moves.Count).SequenceEqual(moves) == true, "respeta los movimientos del set", detailed.Problem ?? "");
+        Check(label, !doc.HasChanges, "generar no toca la partida hasta colocar");
+
+        var before = doc.Pokemon.Count;
+        var arrival = doc.PlaceGenerated(plain.Pokemon, doc.FreePlace(0)!.Value);
+        Check(label, arrival.Entry.IsNew && doc.At(arrival.Entry.Place) == arrival.Entry && doc.Pokemon.Count == before + 1, "coloca lo generado en un lugar libre");
+        Check(label, doc.HasChanges && doc.BoxChangeCount == 1, "lo generado queda pendiente", doc.BoxChangeCount.ToString());
+        Check(label, Catalog.CheckLegality(arrival.Entry).Valid, "sigue siendo legal en su lugar", Catalog.CheckLegality(arrival.Entry).Report);
+        Check(label, !arrival.Entry.Dirty, "llega sin ediciones pendientes");
+        doc.UndoLayout();
+        Check(label, doc.Pokemon.Count == before && !doc.HasChanges && doc.BuildOutput().SequenceEqual(doc.OriginalBytes), "deshacer devuelve el archivo tal como estaba");
+        arrival = doc.PlaceGenerated(plain.Pokemon, doc.FreePlace(0)!.Value);
+        Refused(label, () => doc.PlaceGenerated(plain.Pokemon, arrival.Entry.Place), "colocar sobre un lugar ocupado");
+
+        // What a save has to hold back: an item it doesn't own, and one it does.
+        if (rules.HasHeldItems && doc.Items.FirstOrDefault(i => rules.CanHold(i.Id) && !doc.IsUniqueHeldItem(i.Id) && !rules.IsMail(i.Id)) is { } held)
+        {
+            var carrier = plain.Pokemon.Clone(); carrier.HeldItem = held.Id; carrier.RefreshChecksum();
+            int stock = doc.GetItemCount(held.Id);
+            if (stock == 0)
+            {
+                var without = doc.PlaceGenerated(carrier, doc.FreePlace(0)!.Value);
+                Check(label, without.Entry.Edit.HeldItem == 0 && without.Message.Contains(rules.ItemName(held.Id)), "sin unidades en la bolsa llega sin objeto y lo dice", without.Message);
+                doc.UndoLayout();
+            }
+            doc.SetItemCount(held.Id, stock + 1);
+            var with = doc.PlaceGenerated(carrier, doc.FreePlace(0)!.Value);
+            Check(label, with.Entry.Edit.HeldItem == held.Id && doc.GetItemCount(held.Id) == stock, "el objeto sale de la bolsa", with.Entry.Edit.HeldItem.ToString());
+            doc.UndoLayout();
+            doc.SetItemCount(held.Id, stock);
+        }
+
+        // Six the save lacks. Stopping first leaves nothing behind.
+        using (var stop = new CancellationTokenSource())
+        {
+            stop.Cancel();
+            var nothing = generator.LivingDex(doc.OwnedSpecies(), 6, null, stop.Token);
+            Check(label, nothing.Stopped && nothing.Results.Count == 0 && nothing.Untried > 0, "se puede detener");
+        }
+        var counted = new List<int>();
+        var dex = generator.LivingDex(doc.OwnedSpecies(), 6, new Immediately(counted));
+        Check(label, dex.ReadyCount == 6, "completa una Pokédex parcial", $"{dex.ReadyCount} y {dex.Skipped} omitidos: {string.Join(", ", dex.Results.Where(r => r.Pokemon == null).Take(4).Select(r => $"{EnglishSpecies[r.Species]} ({r.Problem})"))}");
+        Check(label, counted.SequenceEqual(Enumerable.Range(1, dex.Results.Count)), "informa del progreso", counted.Count.ToString());
+        Check(label, dex.Owned == doc.OwnedSpecies().Count(generator.DexSpecies.Contains), "no repite las especies que ya tiene", dex.Owned.ToString());
+        Check(label, dex.Ready.Select(p => p.Species).Distinct().Count() == dex.ReadyCount && dex.Ready.All(p => !doc.OwnedSpecies().Contains(p.Species)), "una por especie, y que falte");
+        var layout = doc.Pokemon.Count;
+        Check(label, doc.PlaceAll(dex.Ready, 0) == dex.ReadyCount && doc.Pokemon.Count == layout + dex.ReadyCount, "coloca la Pokédex en lugares libres");
+        NoGaps(label, doc, "generar");
+        doc.UndoLayout();
+        Check(label, doc.Pokemon.Count == layout, "un solo deshacer se lleva toda la Pokédex", doc.Pokemon.Count.ToString());
+        doc.PlaceAll(dex.Ready, 0);
+
+        var placed = doc.Pokemon.Where(p => p.IsNew).Select(p => p.Place).ToList();
+        var read = Reopened(label, doc, doc.FilePath, "generar");
+        foreach (var e in placed.Select(p => read.At(p)!))
+            Check(label, Catalog.CheckLegality(e).Valid, "lo generado es legal al releerlo", $"{e.SpeciesName}: {Catalog.CheckLegality(e).Report}");
+
+        var full = SaveDocument.Open(doc.FilePath);
+        full.PlaceAll(Enumerable.Repeat(plain.Pokemon, full.FreePlaces), 0);
+        Check(label, full.FreePlaces == 0, "cuenta los lugares libres", full.FreePlaces.ToString());
+        Check(label, full.PlaceAll([plain.Pokemon], 0) == 0, "con las cajas llenas no coloca nada");
+        Check(label, watchWorks && web.Requests == 0, "no se conecta a internet", $"{watchWorks} {web.Requests}");
+    }
+
+    // A real Progress posts to another thread, which would lose the order a check looks at.
+    sealed class Immediately(List<int> seen) : IProgress<int>
+    {
+        public void Report(int value) => seen.Add(value);
+    }
+
+    public static void RunGeneration(string work, string? only = null)
+    {
+        Directory.CreateDirectory(work);
+        foreach (var (game, label) in Games.Where(g => only == null || g.Game.ToString() == only))
+        {
+            int before = failed;
+            try { Generation(game, label, work); }
+            catch (Exception ex) { failed++; failures.Add($"{label}: {ex.GetType().Name}: {ex.Message.Split('\n')[0]}  {ex.StackTrace?.Split('\n').FirstOrDefault()?.Trim()}"); }
+            Console.WriteLine($"{(failed == before ? "ok   " : "FALLA")} {label}");
+        }
+        Console.WriteLine();
+        foreach (var f in failures) Console.WriteLine("  " + f);
+        Console.WriteLine($"\nRESULTADO: {passed} comprobaciones correctas, {failed} fallidas");
+        Environment.ExitCode = failed == 0 ? 0 : 1;
+    }
+
+    /// <summary>How much of each game's Pokédex the generator reaches, and how long it takes. Says what it skips and why.</summary>
+    public static void RunLivingDex(string work, string? only = null)
+    {
+        Directory.CreateDirectory(work);
+        foreach (var (game, label) in Games.Where(g => only == null || g.Game.ToString() == only))
+        {
+            var doc = GeneratorSave(game, work);
+            var generator = new LegalGenerator(doc);
+            var clock = System.Diagnostics.Stopwatch.StartNew();
+            long slowest = 0; ushort slowestSpecies = 0;
+            var results = new List<Generated>();
+            foreach (ushort species in generator.DexSpecies)
+            {
+                var one = System.Diagnostics.Stopwatch.StartNew();
+                results.Add(generator.FromSpecies(species));
+                if (one.ElapsedMilliseconds > slowest) { slowest = one.ElapsedMilliseconds; slowestSpecies = species; }
+            }
+            var skipped = results.Where(r => r.Pokemon == null).ToList();
+            var reasons = skipped.GroupBy(r => r.Problem ?? "").OrderByDescending(g => g.Count()).Take(3).Select(g => $"{g.Count()}x {g.Key}");
+            Console.WriteLine($"{label,-20} {results.Count - skipped.Count,4}/{results.Count,-4} {clock.Elapsed.TotalSeconds,7:F1} s  lento {slowest,6} ms {EnglishSpecies[slowestSpecies]}  web {web.Requests}");
+            if (skipped.Count == 0) continue;
+            Console.WriteLine($"     omite: {string.Join(", ", skipped.Take(24).Select(r => EnglishSpecies[r.Species]))}{(skipped.Count > 24 ? " …" : "")}");
+            Console.WriteLine($"     por  : {string.Join(" | ", reasons)}");
+        }
+    }
+
     /// <summary>Nothing goes untranslated, and no translation loses a value it has to show.</summary>
     public static void CheckStrings(string source)
     {
@@ -1744,6 +1915,28 @@ static class AllGames
             Check(label, DifferentSlots(boxes, sorted.BoxInfo.Data, slot).All(i => i < save.BoxSlotCount), "ordenar toca solo esa caja");
             doc.ResetLayout();
         }
+
+        var generator = new LegalGenerator(doc);
+        var made = generator.FromSet("Pikachu\nLevel: 25");
+        Check(label, made.Pokemon != null, "genera desde un set", made.Problem ?? "");
+        doc.PlaceGenerated(made.Pokemon!, new(false, empty));
+        var generated = Written(doc, work, "generated");
+        Check(label, DifferentSlots(boxes, generated.BoxInfo.Data, slot).SequenceEqual([empty]), "generar toca solo su lugar");
+        Check(label, DifferentSlots(party, generated.PartyInfo.Data, teamSlot).Count == 0, "generar no toca el equipo");
+        var arrived = generated.GetBoxSlotAtIndex(empty);
+        Check(label, arrived.OriginalTrainerName == save.OT && arrived.ID32 == save.ID32 && arrived.CurrentLevel == 25, "lo generado es del entrenador y del nivel pedido", arrived.OriginalTrainerName);
+        doc.ResetLayout();
+
+        var dex = generator.LivingDex(doc.OwnedSpecies(), 12);
+        Check(label, dex.ReadyCount == 12, "completa una Pokédex parcial", $"{dex.ReadyCount} y {dex.Skipped} omitidos");
+        doc.PlaceAll(dex.Ready, 0);
+        var places = doc.Pokemon.Where(p => p.IsNew).Select(p => p.Index).Order().ToList();
+        var filled = Written(doc, work, "dex");
+        Check(label, DifferentSlots(boxes, filled.BoxInfo.Data, slot).SequenceEqual(places), "la Pokédex toca solo sus lugares");
+        var reread = SaveDocument.Read(Path.Combine(work, "real.dex"));
+        foreach (int index in places)
+            Check(label, reread.At(new(false, index)) is { } back && Catalog.CheckLegality(back).Valid, "lo generado es legal al releer el archivo", index.ToString());
+        doc.ResetLayout();
         Check(label, !doc.HasChanges && SaveDocument.Hash(doc.BuildOutput()) == hash, "deshecho todo, la partida queda idéntica");
         Check(label, SaveDocument.Hash(File.ReadAllBytes(source)) == hash, "el archivo de origen no se toca");
         Console.WriteLine();
@@ -1777,7 +1970,7 @@ static class AllGames
         foreach (var (game, label) in Games)
         {
             int before = failed;
-            try { Run(game, label, work); FormsOnDisk(game, label, work); StuckForms(game, label); Abilities(game, label, work); Details(game, label, work); SaveTool(game, label, work); Trainer(game, label, work); Pokedex(game, label, work); BoxTools(game, label, work); AbilityWithForms(game, label); LanguageSwitch(game, label, work); InEveryLanguage(game, label, work); }
+            try { Run(game, label, work); FormsOnDisk(game, label, work); StuckForms(game, label); Abilities(game, label, work); Details(game, label, work); SaveTool(game, label, work); Trainer(game, label, work); Pokedex(game, label, work); BoxTools(game, label, work); Generation(game, label, work); AbilityWithForms(game, label); LanguageSwitch(game, label, work); InEveryLanguage(game, label, work); }
             catch (Exception ex) { failed++; failures.Add($"{label}: {ex.GetType().Name}: {ex.Message.Split('\n')[0]}  {ex.StackTrace?.Split('\n').FirstOrDefault()?.Trim()}"); }
             Console.WriteLine($"{(failed == before ? "ok   " : "FALLA")} {label}");
         }

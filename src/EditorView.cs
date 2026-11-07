@@ -925,6 +925,7 @@ public sealed partial class EditorView : UserControl
         PasteShowdown("Pikachu\nLevel: 5");
         Check(status.Text.Contains("Pikachu") && document.DirtyCount == 0, "A set for another species is refused");
         RunBoxChecks(Check, Path.GetDirectoryName(Path.GetFullPath(reportPath))!);
+        CheckGenerators(Check);
         Choose(4); tabs.SelectedIndex = BagTab; resources.RunInteractionChecks(Check);
         Check(!save.Enabled && !document.HasChanges && heroPanel?.Visible == false, "Resource undo clears global pending changes and the bag tab hides the Pokémon header");
         Choose(4); tabs.SelectedIndex = 0; equipment.RunInteractionChecks(Check); resources.RefreshDraft(); UpdateState();
@@ -1136,7 +1137,9 @@ public sealed partial class EditorView : UserControl
         compare.PressCompare(copy, document.FilePath); WaitFor(() => !compare.Working, "the comparison");
         Check(compare.RowCount != 0, "The comparison shows something to lay out");
         Inspect(compare, "compare");
-        compare.Close(); scratchBackups = null;
+        compare.Close();
+        InspectGenerators(Inspect);
+        scratchBackups = null;
     }
 
     internal void OpenToolForChecks() => toolsMenu.Items[0].PerformClick();

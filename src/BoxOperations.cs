@@ -49,10 +49,12 @@ public sealed partial class SaveDocument
 
     public PokemonEntry? At(SlotPlace place) => Pokemon.FirstOrDefault(p => p.Place == place);
 
+    HashSet<int> TakenPlaces() => Pokemon.Where(p => !p.IsParty).Select(p => p.Index).Concat(unreadable.Where(p => !p.IsParty).Select(p => p.Index)).ToHashSet();
+
     /// <summary>The first free place from this box on, going round to the first box after the last.</summary>
     public SlotPlace? FreePlace(int box)
     {
-        var used = Pokemon.Where(p => !p.IsParty).Select(p => p.Index).Concat(unreadable.Where(p => !p.IsParty).Select(p => p.Index)).ToHashSet();
+        var used = TakenPlaces();
         int count = OpenBoxes * Save.BoxSlotCount, start = box < OpenBoxes ? box * Save.BoxSlotCount : 0;
         for (int i = 0; i < count; i++)
             if (!used.Contains((start + i) % count)) return new(false, (start + i) % count);

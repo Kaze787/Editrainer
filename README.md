@@ -161,7 +161,7 @@ Rows keep their room for fields and labels. If you shrink the window and the con
 
 ## Whole-save tools
 
-The **Tools** button, next to **Find saves**, gathers everything that works on the whole save: the four tools below, the Legends: Z-A tools, the trainer and Pokédex editors, and the box sorting and undo described further down. These four open their own window beside the editor, so you can keep working while it's open. Only restoring a backup writes anything.
+The **Tools** button, next to **Find saves**, gathers everything that works on the whole save: the four tools below, the Legends: Z-A tools, the trainer and Pokédex editors, the box sorting and undo, and the generators of legal Pokémon described further down. These four open their own window beside the editor, so you can keep working while it's open. Only restoring a backup writes anything.
 
 - **Legality audit** checks every Pokémon as it would be saved, pending changes included, and lists the ones that aren't legal with the reasons. Click one to see it in the editor, and use **Check again** after fixing it.
 - **Box report** shows every Pokémon in one table: place, species, nickname, level, nature, ability, IVs, EVs, moves, held item, shiny and legality. Click a column to sort by it. **Export CSV** saves the table for a spreadsheet, using your system's list separator. IVs and EVs follow the order HP / Attack / Defense / Speed / Sp. Atk / Sp. Def.
@@ -225,6 +225,21 @@ Some things stay in place on purpose, and the app tells you why when you try:
 
 Every change is checked after writing: each place of the team and the boxes has to hold exactly what it should, and nothing else may differ. This was tested on all 38 games with generated saves and byte by byte on real Z-A saves, but not by loading the results in each game, so try it on a copy first.
 
+## Generating legal Pokémon
+
+Two entries in **Tools** make new Pokémon with the Auto-Legality Mod engine, offline. Each one passes PKHeX's legality check as it would be saved before it can be placed, and then arrives like a clone: pending until **Save game**, counted in the title, removed with the box undo and checked after saving.
+
+- **Generate from Showdown** takes a Showdown set, pasted or typed in English or in the language on screen, and puts a legal Pokémon in the first free place from the open box on. It is yours (your trainer name and ID) unless the encounter fixes them, as gifts and events do. A set no legal encounter can give is reported and nothing is placed. A held item comes from your bag: with none left the Pokémon arrives without it, or isn't placed at all if it needs that item to be legal.
+- **Living Pokédex** looks for one legal Pokémon of each species you lack, in the first form the game has for it, at level 100. It shows its progress, and **Stop** keeps what it has made. What it skipped comes first in the list, with the reason. Nothing changes until **Place in the boxes**, which fills the free places from the open box on, and a single undo takes them all back.
+
+Things to expect:
+
+- Some species can't be made in some games, because no legal encounter reaches them there. Mythicals are the usual case on Sword and Shield, Brilliant Diamond and Shining Pearl, and Scarlet and Violet, where many Pokémon only arrive through HOME, which the engine doesn't simulate. Those are skipped and listed.
+- Box Pokémon don't register in the Pokédex: use the Pokédex editor for that.
+- Colosseum and XD saves can't receive generated Pokémon, because they can't be rearranged.
+
+Generating was tested on all 38 games with generated saves, writing the file and reading the result back, and byte by byte on real Z-A saves. PKHeX calling a Pokémon legal is not the same as seeing it work in the game, and nothing here was loaded in one, so try it on a copy first.
+
 ## Backups
 
 Backups go in the `Backups` folder, inside the app's folder. The **Open backups** link opens it. Each save includes:
@@ -253,10 +268,10 @@ With the .NET 10 SDK installed, this builds the app and creates `Editrainer-wind
 .\build.ps1
 ```
 
-The save tests are in `tests`. They run on an isolated copy and never write to the save they receive. `--za-tools <save> <folder>` runs each Z-A tool through a real write and reopen on a copy of a real Z-A save. `--all-games <folder>` tests every game with generated saves, including every form of each one, in each language. `--strings src` checks that all the app's text is translated. Visual checks can be run with `Editrainer.exe --preview <save> <capture.png> <app-folder> <index> <tab>`.
+The save tests are in `tests`. They run on an isolated copy and never write to the save they receive. `--za-tools <save> <folder>` runs each Z-A tool through a real write and reopen on a copy of a real Z-A save. `--all-games <folder>` tests every game with generated saves, including every form of each one, in each language. `--generate <folder>` runs only the legal Pokémon generators, and `--living-dex <folder>` measures how much of each game's Pokédex they reach. `--strings src` checks that all the app's text is translated. Visual checks can be run with `Editrainer.exe --preview <save> <capture.png> <app-folder> <index> <tab>`.
 
 ## License and credits
 
-Distributed under GPL-3.0-or-later: see `LICENSE`. Full credits are in `CREDITOS.md`.
+Distributed under GPL-3.0-or-later: see `LICENSE`. Full credits are in `CREDITOS.md`. Legal Pokémon are generated with the [Auto Legality Mod](https://github.com/santacrab2/PKHeX-Plugins) engine by architdate, santacrab2 and contributors, under the MIT license.
 
 Editrainer is an unofficial fan project, not affiliated with Nintendo, Creatures, GAME FREAK or The Pokémon Company. Pokémon and all related characters and images belong to their respective owners.

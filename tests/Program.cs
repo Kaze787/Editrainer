@@ -22,6 +22,16 @@ if (args[0] == "--box-save")
     AllGames.RealSave(Path.GetFullPath(args[1]), Path.GetFullPath(args[2]));
     return;
 }
+if (args[0] == "--generate")
+{
+    AllGames.RunGeneration(args[1], args.ElementAtOrDefault(2));
+    return;
+}
+if (args[0] == "--living-dex")
+{
+    AllGames.RunLivingDex(args[1], args.ElementAtOrDefault(2));
+    return;
+}
 if (args[0] == "--strings")
 {
     AllGames.CheckStrings(args[1]);

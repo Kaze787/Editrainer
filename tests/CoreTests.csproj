@@ -4,9 +4,11 @@
     <Compile Include="../src/Core.cs" Link="Core.cs" />
     <Compile Include="../src/SaveTools.cs" Link="SaveTools.cs" />
     <Compile Include="../src/BoxOperations.cs" Link="BoxOperations.cs" />
+    <Compile Include="../src/LegalGenerator.cs" Link="LegalGenerator.cs" />
     <Compile Include="../src/Strings.cs" Link="Strings.cs" />
     <Compile Include="../src/ZaTools.cs" Link="ZaTools.cs" />
     <Compile Include="../src/TrainerDex.cs" Link="TrainerDex.cs" />
     <Reference Include="PKHeX.Core"><HintPath>../lib/PKHeX.Core.dll</HintPath></Reference>
+    <Reference Include="PKHeX.Core.AutoMod"><HintPath>../lib/PKHeX.Core.AutoMod.dll</HintPath></Reference>
   </ItemGroup>
 </Project>
